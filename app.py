@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 
 # --- App Configuration ---
-st.set_page_config(page_title="Swiggy Instamart Strategy Analytics", layout="wide")
+st.set_page_config(page_title="Swiggy Instamart Precision Analytics", layout="wide")
 
-st.title("🚀 Swiggy Instamart: Performance & Funnel Dashboard")
-st.markdown("Precision tracking of GMV, Spend efficiency, and Purchase Intent.")
+st.title("🚀 Swiggy Instamart: Full-String Precision Dashboard")
+st.markdown("Micromanagement with exact campaign matching and 2-decimal accuracy.")
 
 # --- Helper: Robust Data Loading ---
 def load_data_robust(file):
@@ -15,7 +15,7 @@ def load_data_robust(file):
     else:
         df_raw = pd.read_csv(file, header=None)
 
-    # Detect Header (skipping metadata headers)
+    # Detect Header (Finding 'METRICS_DATE' to skip Swiggy's top metadata rows)
     header_idx = 0
     for i, row in df_raw.iterrows():
         if 'METRICS_DATE' in row.values:
@@ -26,9 +26,9 @@ def load_data_robust(file):
     df.columns = df.iloc[0]
     df = df.drop(df.index[0]).reset_index(drop=True)
     
-    # Numeric Conversion
+    # Numeric Conversion for accuracy
     numeric_cols = [
-        'TOTAL_IMPRESSIONS', 'TOTAL_BUDGET', 'TOTAL_BUDGET_BURNT', 
+        'TOTAL_IMPRESSIONS', 'TOTAL_BUDGET_BURNT', 
         'TOTAL_CLICKS', 'TOTAL_A2C', 'TOTAL_GMV', 'TOTAL_CONVERSIONS', 
         'TOTAL_DIRECT_GMV_7_DAYS'
     ]
@@ -45,7 +45,7 @@ if uploaded_file:
     try:
         df = load_data_robust(uploaded_file)
         
-        # --- Robust Category Mapping (Priority Check for Palappam) ---
+        # --- FIXED Category Mapping (Priority: Palappam) ---
         def map_item_type(name):
             n = str(name).lower()
             if 'palappam' in n: return 'INSTANT PALAPPAM'
@@ -56,17 +56,28 @@ if uploaded_file:
 
         df['ITEM_TYPE'] = df['PRODUCT_NAME'].apply(map_item_type)
         
-        # --- Calculated Metrics ---
+        # Precision Metrics (Rounded to 2 digits)
         df['ROAS'] = (df['TOTAL_GMV'] / df['TOTAL_BUDGET_BURNT'].replace(0, 0.0001)).round(2)
         df['CPC'] = (df['TOTAL_BUDGET_BURNT'] / df['TOTAL_CLICKS'].replace(0, 1)).round(2)
+        df['DIRECT_RATIO'] = (df['TOTAL_DIRECT_GMV_7_DAYS'] / df['TOTAL_GMV'].replace(0, 1)).round(2)
 
         # --- Sidebar Filters ---
-        st.sidebar.header("Global Filters")
+        st.sidebar.header("Precision Filters")
+        
+        # Campaign Filter - Matching FULL strings
+        all_campaigns = sorted(df['CAMPAIGN_NAME'].unique())
+        selected_camps = st.sidebar.multiselect("Select Exact Campaigns", options=all_campaigns, default=all_campaigns)
+        
         sorted_cats = sorted(df['ITEM_TYPE'].unique())
         cities = st.sidebar.multiselect("Cities", options=sorted(df['CITY'].unique()), default=df['CITY'].unique())
         cats = st.sidebar.multiselect("Categories", options=sorted_cats, default=sorted_cats)
         
-        filtered = df[(df['CITY'].isin(cities)) & (df['ITEM_TYPE'].isin(cats))]
+        # Apply Filters
+        filtered = df[
+            (df['CITY'].isin(cities)) & 
+            (df['ITEM_TYPE'].isin(cats)) & 
+            (df['CAMPAIGN_NAME'].isin(selected_camps))
+        ]
 
         # --- Top KPI Summary ---
         k1, k2, k3, k4 = st.columns(4)
@@ -76,41 +87,39 @@ if uploaded_file:
         k3.metric("Combined ROAS", f"{total_roas}x")
         k4.metric("Conversions", int(filtered['TOTAL_CONVERSIONS'].sum()))
 
-        # --- Tabbed Section ---
+        # --- Tabs ---
         tab1, tab2, tab3 = st.tabs(["🌎 Global SKU View", "📍 Regional Analysis", "🔍 Keyword Analysis"])
 
         with tab1:
-            st.subheader("National SKU Overview (with A2C)")
-            # Tab 1 retains A2C for global intent monitoring
+            st.subheader("National SKU Overview (Consolidated)")
+            # Summing common items across all regions
             global_df = filtered.groupby(['ITEM_TYPE', 'PRODUCT_NAME']).agg({
                 'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 
                 'TOTAL_CONVERSIONS': 'sum', 'TOTAL_A2C': 'sum'
             }).reset_index()
-            global_df['ROAS'] = (global_df['TOTAL_GMV'] / global_df['TOTAL_BUDGET_BURNT'].replace(0, 1)).round(2)
+            global_df['GLOBAL_ROAS'] = (global_df['TOTAL_GMV'] / global_df['TOTAL_BUDGET_BURNT'].replace(0, 1)).round(2)
             st.dataframe(global_df.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
 
         with tab2:
-            st.subheader("Regional Performance (A2C Removed)")
-            # Tab 2 focuses purely on region sales efficiency
+            st.subheader("Regional Performance (City x Category)")
             reg = filtered.groupby(['CITY', 'ITEM_TYPE']).agg({
                 'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CONVERSIONS': 'sum'
             }).reset_index().round(2)
             reg['ROAS'] = (reg['TOTAL_GMV'] / reg['TOTAL_BUDGET_BURNT'].replace(0, 1)).round(2)
             st.dataframe(reg.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
             
-            # Regional Micromanagement Metrics
             st.divider()
             m1, m2 = st.columns(2)
-            top_city = reg.groupby('CITY')['ROAS'].mean().idxmax()
-            m1.metric("Highest Efficiency City (ROI)", top_city)
-            city_cpc = filtered.groupby('CITY')['CPC'].mean().round(2)
-            m2.metric("Most Expensive City (Avg CPC)", f"₹{city_cpc.max()} ({city_cpc.idxmax()})")
+            if not reg.empty:
+                m1.metric("Highest Efficiency City", reg.groupby('CITY')['ROAS'].mean().idxmax())
+                avg_cpc = filtered.groupby('CITY')['CPC'].mean().round(2)
+                m2.metric("Most Expensive City (CPC)", f"₹{avg_cpc.max()} ({avg_cpc.idxmax()})")
 
         with tab3:
             col_a, col_b = st.columns(2)
             with col_a:
                 st.subheader("✅ Performing Keywords")
-                # Category included, A2C removed
+                # Grouping by Item Type + Keyword for precision
                 perf_kw = filtered[filtered['TOTAL_GMV'] > 0].groupby(['ITEM_TYPE', 'KEYWORD']).agg({
                     'TOTAL_GMV': 'sum', 'ROAS': 'mean', 'TOTAL_CONVERSIONS': 'sum'
                 }).reset_index().round(2)
@@ -118,24 +127,22 @@ if uploaded_file:
             
             with col_b:
                 st.subheader("🛑 Wastage (0 GMV Keywords)")
-                # A2C removed
-                non_perf = filtered[filtered['TOTAL_GMV'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).agg({
+                # Showing FULL Campaign Name for exact matching
+                non_perf = filtered[filtered['TOTAL_GMV'] == 0].groupby(['CITY', 'CAMPAIGN_NAME', 'KEYWORD']).agg({
                     'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CLICKS': 'sum'
                 }).reset_index().round(2)
                 st.dataframe(non_perf.sort_values('TOTAL_BUDGET_BURNT', ascending=False), use_container_width=True)
             
-            # Keyword Micromanagement Metrics
             st.divider()
             w1, w2 = st.columns(2)
-            wastage_val = filtered[filtered['TOTAL_GMV'] == 0]['TOTAL_BUDGET_BURNT'].sum()
-            wastage_pct = (wastage_val / filtered['TOTAL_BUDGET_BURNT'].sum() * 100).round(2) if filtered['TOTAL_BUDGET_BURNT'].sum() > 0 else 0
-            w1.metric("Budget Wastage %", f"{wastage_pct}%")
-            top_kw = filtered.groupby('KEYWORD')['TOTAL_GMV'].sum().idxmax()
-            w2.metric("Top Revenue Driver", top_kw)
+            waste = filtered[filtered['TOTAL_GMV'] == 0]['TOTAL_BUDGET_BURNT'].sum()
+            w1.metric("Budget Wastage %", f"{(waste/filtered['TOTAL_BUDGET_BURNT'].sum()*100).round(2) if filtered['TOTAL_BUDGET_BURNT'].sum()>0 else 0}%")
+            if not filtered[filtered['TOTAL_GMV']>0].empty:
+                w2.metric("Top Keyword", filtered.groupby('KEYWORD')['TOTAL_GMV'].sum().idxmax())
 
-        # --- Deep Dive Funnel (Bottom Section) ---
+        # --- Bottom Funnel Analysis ---
         st.divider()
-        st.subheader("⚡ Strategy Insights: The Purchase Intent Funnel")
+        st.subheader("⚡ Strategy Funnel: Add-to-Cart (A2C) Analysis")
         funnel = filtered.groupby('ITEM_TYPE').agg({
             'TOTAL_CLICKS': 'sum', 'TOTAL_A2C': 'sum', 'TOTAL_CONVERSIONS': 'sum'
         }).reset_index()
@@ -146,4 +153,4 @@ if uploaded_file:
     except Exception as e:
         st.error(f"Error: {e}")
 else:
-    st.info("Upload report to start.")
+    st.info("Upload Swiggy report to start.")
