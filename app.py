@@ -4,105 +4,112 @@ import plotly.express as px
 import io
 
 # --- App Configuration ---
-st.set_page_config(page_title="Swiggy Instamart Analytics", layout="wide")
+st.set_page_config(page_title="Swiggy Instamart Analysis", layout="wide")
 
-st.title("📊 Swiggy Instamart Granular Performance Dashboard")
-st.markdown("Upload your Granular Sales Report (CSV or Excel) to see Region, Product, and Keyword insights.")
+st.title("🚀 Swiggy Instamart Granular Performance Dashboard")
+st.markdown("Upload your report to automatically analyze region, product, and keyword performance.")
 
-# --- 1. File Uploader Section ---
-uploaded_file = st.file_uploader("Upload Granular Data", type=['csv', 'xlsx'])
+# --- Helper: Robust Data Loading ---
+def load_data_robust(file):
+    # Determine if it's CSV or Excel
+    is_excel = file.name.endswith(('.xlsx', '.xls'))
+    
+    if is_excel:
+        # For Excel, we read and look for the header
+        df_raw = pd.read_excel(file, header=None)
+    else:
+        # For CSV, we read and look for the header
+        df_raw = pd.read_csv(file, header=None)
 
-def get_csv_download_link(df, filename="report.csv"):
-    """Generates a link to download the dataframe as a CSV file."""
-    csv = df.to_csv(index=False)
-    return csv
+    # Find the row containing 'METRICS_DATE' to use as the header
+    header_idx = 0
+    for i, row in df_raw.iterrows():
+        if 'METRICS_DATE' in row.values:
+            header_idx = i
+            break
+            
+    # Re-read or slice the dataframe starting from the detected header
+    df = df_raw.iloc[header_idx:].copy()
+    df.columns = df.iloc[0]
+    df = df.drop(df.index[0]).reset_index(drop=True)
+    
+    # Ensure numeric columns are converted correctly
+    numeric_cols = ['TOTAL_IMPRESSIONS', 'TOTAL_BUDGET_BURNT', 'TOTAL_CLICKS', 
+                    'TOTAL_A2C', 'TOTAL_GMV', 'TOTAL_CONVERSIONS', 'TOTAL_ROI']
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+    # Clean percentage columns
+    for col in ['TOTAL_CTR', 'A2C_RATE']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.rstrip('%').astype(float) / 100.0
+            
+    return df
 
-if uploaded_file is not None:
-    # Handle both CSV and Excel
+# --- 1. File Uploader ---
+uploaded_file = st.file_uploader("Upload Granular CSV or Excel", type=['csv', 'xlsx'])
+
+if uploaded_file:
     try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
+        df = load_data_robust(uploaded_file)
         
-        # --- Data Cleaning ---
-        if 'TOTAL_CTR' in df.columns and df['TOTAL_CTR'].dtype == object:
-            df['TOTAL_CTR'] = df['TOTAL_CTR'].str.rstrip('%').astype('float') / 100.0
-        
-        # --- Robust Product Mapping Logic ---
-        def map_category(product_name):
-            name = str(product_name).lower()
-            if any(x in name for x in ['matta vadi', 'unda matta', 'matta unda']): return 'MATTA RICE'
-            if 'puttu podi' in name: return 'PUTTU PODI'
-            if any(x in name for x in ['appam', 'idiyappam', 'pathiri']): return 'APPAM, IDIYAPPAM'
-            if 'palappam' in name: return 'INSTANT PALAPPAM'
+        # --- Category Mapping ---
+        def map_item_type(name):
+            n = str(name).lower()
+            if any(x in n for x in ['matta vadi', 'unda matta', 'matta unda']): return 'MATTA RICE'
+            if 'puttu podi' in n: return 'PUTTU PODI'
+            if any(x in n for x in ['appam', 'idiyappam', 'pathiri']): return 'APPAM, IDIYAPPAM'
+            if 'palappam' in n: return 'INSTANT PALAPPAM'
             return 'OTHERS'
 
-        df['ITEM_TYPE'] = df['PRODUCT_NAME'].apply(map_category)
+        df['ITEM_TYPE'] = df['PRODUCT_NAME'].apply(map_item_type)
         df['ROAS'] = df['TOTAL_GMV'] / df['TOTAL_BUDGET_BURNT'].replace(0, 1)
 
         # --- Sidebar Filters ---
-        st.sidebar.header("Global Filters")
-        cities = st.sidebar.multiselect("Filter by City", options=df['CITY'].unique(), default=df['CITY'].unique())
-        categories = st.sidebar.multiselect("Filter by Category", options=df['ITEM_TYPE'].unique(), default=df['ITEM_TYPE'].unique())
+        st.sidebar.header("Filters")
+        cities = st.sidebar.multiselect("Cities", options=df['CITY'].unique(), default=df['CITY'].unique())
+        cats = st.sidebar.multiselect("Categories", options=df['ITEM_TYPE'].unique(), default=df['ITEM_TYPE'].unique())
         
-        mask = (df['CITY'].isin(cities)) & (df['ITEM_TYPE'].isin(categories))
-        filtered_df = df[mask]
+        filtered = df[(df['CITY'].isin(cities)) & (df['ITEM_TYPE'].isin(cats))]
 
-        # --- Dashboard Metrics ---
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total GMV", f"₹{filtered_df['TOTAL_GMV'].sum():,.0f}")
-        m2.metric("Total Spends", f"₹{filtered_df['TOTAL_BUDGET_BURNT'].sum():,.2f}")
-        roas = filtered_df['TOTAL_GMV'].sum() / filtered_df['TOTAL_BUDGET_BURNT'].sum() if filtered_df['TOTAL_BUDGET_BURNT'].sum() > 0 else 0
-        m3.metric("Combined ROAS", f"{roas:.2f}x")
-        m4.metric("Conversions", int(filtered_df['TOTAL_CONVERSIONS'].sum()))
+        # --- KPI Row ---
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total GMV", f"₹{filtered['TOTAL_GMV'].sum():,.0f}")
+        c2.metric("Total Spend", f"₹{filtered['TOTAL_BUDGET_BURNT'].sum():,.2f}")
+        c3.metric("Conversions", int(filtered['TOTAL_CONVERSIONS'].sum()))
+        total_roas = filtered['TOTAL_GMV'].sum() / filtered['TOTAL_BUDGET_BURNT'].sum() if filtered['TOTAL_BUDGET_BURNT'].sum() > 0 else 0
+        c4.metric("Total ROAS", f"{total_roas:.2f}x")
 
-        # --- Section 1: Region & Category Performance ---
+        # --- Analysis Tables ---
+        st.divider()
+        
+        # Region & Product
         st.subheader("📍 Region-wise Product Performance")
-        reg_data = filtered_df.groupby(['CITY', 'ITEM_TYPE']).agg({
-            'TOTAL_GMV': 'sum',
-            'TOTAL_BUDGET_BURNT': 'sum',
-            'TOTAL_CONVERSIONS': 'sum'
-        }).reset_index()
-        reg_data['ROAS'] = reg_data['TOTAL_GMV'] / reg_data['TOTAL_BUDGET_BURNT'].replace(0, 1)
-        
-        st.dataframe(reg_data.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
-        st.download_button("Export Region Performance", get_csv_download_link(reg_data), "region_performance.csv", "text/csv")
+        reg_perf = filtered.groupby(['CITY', 'ITEM_TYPE', 'PRODUCT_NAME']).agg({
+            'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CONVERSIONS': 'sum'
+        }).reset_index().sort_values('TOTAL_GMV', ascending=False)
+        st.dataframe(reg_perf, use_container_width=True)
+        st.download_button("Export Region Data", reg_perf.to_csv(index=False), "region_performance.csv")
 
-        # --- Section 2: Product & Keyword Performance ---
-        st.subheader("📦 Product & Top Keywords")
-        prod_kw = filtered_df.groupby(['PRODUCT_NAME', 'KEYWORD']).agg({
-            'TOTAL_GMV': 'sum',
-            'TOTAL_CONVERSIONS': 'sum',
-            'TOTAL_BUDGET_BURNT': 'sum'
+        # Top Keywords
+        st.subheader("🔍 Top Performing Keywords")
+        kw_perf = filtered.groupby(['ITEM_TYPE', 'KEYWORD']).agg({
+            'TOTAL_GMV': 'sum', 'TOTAL_CONVERSIONS': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'
         }).reset_index()
-        prod_kw['ROAS'] = prod_kw['TOTAL_GMV'] / prod_kw['TOTAL_BUDGET_BURNT'].replace(0, 1)
-        
-        st.dataframe(prod_kw.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
-        st.download_button("Export Product-Keyword Data", get_csv_download_link(prod_kw), "product_keywords.csv", "text/csv")
+        kw_perf['ROAS'] = kw_perf['TOTAL_GMV'] / kw_perf['TOTAL_BUDGET_BURNT'].replace(0, 1)
+        st.dataframe(kw_perf.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
+        st.download_button("Export Keyword Data", kw_perf.to_csv(index=False), "keyword_performance.csv")
 
-        # --- Section 3: Non-Performing Keywords ---
-        st.subheader("🛑 Non-Performing Keywords (Zero Sales)")
-        non_perf = filtered_df[filtered_df['TOTAL_GMV'] == 0].groupby(['ITEM_TYPE', 'KEYWORD']).agg({
-            'TOTAL_BUDGET_BURNT': 'sum',
-            'TOTAL_IMPRESSIONS': 'sum',
-            'TOTAL_CLICKS': 'sum'
+        # Non-Performers
+        st.subheader("🛑 Non-Performing Keywords (Zero GMV)")
+        non_perf = filtered[filtered['TOTAL_GMV'] == 0].groupby('KEYWORD').agg({
+            'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_IMPRESSIONS': 'sum', 'TOTAL_CLICKS': 'sum'
         }).reset_index().sort_values('TOTAL_BUDGET_BURNT', ascending=False)
-        
-        st.warning("These keywords are consuming budget without generating revenue.")
         st.dataframe(non_perf, use_container_width=True)
-        st.download_button("Export Non-Performers", get_csv_download_link(non_perf), "non_performing_keywords.csv", "text/csv")
-
-        # --- Section 4: Visualizing ROAS vs Spend ---
-        st.subheader("📈 Category Efficiency (Spend vs ROAS)")
-        cat_chart_data = filtered_df.groupby('ITEM_TYPE').agg({'TOTAL_BUDGET_BURNT':'sum', 'TOTAL_GMV':'sum'}).reset_index()
-        cat_chart_data['ROAS'] = cat_chart_data['TOTAL_GMV'] / cat_chart_data['TOTAL_BUDGET_BURNT'].replace(0, 1)
-        
-        fig = px.scatter(cat_chart_data, x="TOTAL_BUDGET_BURNT", y="ROAS", size="TOTAL_GMV", color="ITEM_TYPE",
-                         hover_name="ITEM_TYPE", log_x=True, size_max=60, title="Bubble size represents GMV")
-        st.plotly_chart(fig, use_container_width=True)
+        st.download_button("Export Non-Performers", non_perf.to_csv(index=False), "non_performers.csv")
 
     except Exception as e:
         st.error(f"Error processing file: {e}")
 else:
-    st.info("Waiting for file upload...")
+    st.info("Please upload your CSV or Excel file to begin.")
