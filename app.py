@@ -6,7 +6,7 @@ import plotly.express as px
 st.set_page_config(page_title="Swiggy Instamart Precision Analytics", layout="wide")
 
 st.title("🚀 Swiggy Instamart: Final Growth & Efficiency Dashboard")
-st.markdown("A complete solution for micromanaging Instamart campaigns with SKU-level precision and 2-decimal accuracy.")
+st.markdown("Micromanage your campaigns with 2-decimal precision and accurate SKU categorization.")
 
 # --- Helper: Robust Data Loading ---
 def load_data_robust(file):
@@ -16,7 +16,7 @@ def load_data_robust(file):
     else:
         df_raw = pd.read_csv(file, header=None)
 
-    # Detect Header (Finding 'METRICS_DATE' dynamically to skip metadata)
+    # Detect Header (Finding 'METRICS_DATE' dynamically to skip metadata headers)
     header_idx = 0
     for i, row in df_raw.iterrows():
         if 'METRICS_DATE' in row.values:
@@ -51,19 +51,22 @@ if uploaded_file:
     try:
         df = load_data_robust(uploaded_file)
         
-        # --- Category Mapping Logic ---
+        # --- FIXED Category Mapping Logic ---
         def map_item_type(name):
             n = str(name).lower()
-            if any(x in n for x in ['matta vadi', 'unda matta', 'matta unda']): return 'MATTA RICE'
-            if 'puttu podi' in n: return 'PUTTU PODI'
-            if any(x in n for x in ['appam', 'idiyappam', 'pathiri']): return 'APPAM, IDIYAPPAM'
+            # 1. Check for specific 'palappam' first to avoid overlap with general appam
             if 'palappam' in n: return 'INSTANT PALAPPAM'
+            # 2. Check for Matta variants
+            if any(x in n for x in ['matta vadi', 'unda matta', 'matta unda']): return 'MATTA RICE'
+            # 3. Check for Puttu Podi
+            if 'puttu podi' in n: return 'PUTTU PODI'
+            # 4. Check for general Appam/Idiyappam
+            if any(x in n for x in ['appam', 'idiyappam', 'pathiri']): return 'APPAM, IDIYAPPAM'
             return 'OTHERS'
 
         df['ITEM_TYPE'] = df['PRODUCT_NAME'].apply(map_item_type)
         
         # --- Advanced Micro-Management Metrics & Precision ---
-        # Note: TOTAL_BUDGET_BURNT is used to avoid the 'Spend' column error
         df['ROAS'] = (df['TOTAL_GMV'] / df['TOTAL_BUDGET_BURNT'].replace(0, 0.0001))
         df['CPC'] = (df['TOTAL_BUDGET_BURNT'] / df['TOTAL_CLICKS'].replace(0, 1))
         df['CVR'] = (df['TOTAL_CONVERSIONS'] / df['TOTAL_CLICKS'].replace(0, 1))
@@ -78,8 +81,8 @@ if uploaded_file:
 
         # --- Sidebar Filters ---
         st.sidebar.header("Global Filters")
-        cities = st.sidebar.multiselect("Cities", options=df['CITY'].unique(), default=df['CITY'].unique())
-        cats = st.sidebar.multiselect("Categories", options=df['ITEM_TYPE'].unique(), default=df['ITEM_TYPE'].unique())
+        cities = st.sidebar.multiselect("Cities", options=sorted(df['CITY'].unique()), default=df['CITY'].unique())
+        cats = st.sidebar.multiselect("Categories", options=sorted(df['ITEM_TYPE'].unique()), default=df['ITEM_TYPE'].unique())
         
         filtered = df[(df['CITY'].isin(cities)) & (df['ITEM_TYPE'].isin(cats))]
 
@@ -91,11 +94,11 @@ if uploaded_file:
         k3.metric("Combined ROAS", f"{total_roas}x")
         k4.metric("Total Conversions", int(filtered['TOTAL_CONVERSIONS'].sum()))
 
-        # --- Tabs for Clean Navigation ---
+        # --- Tabbed Navigation ---
         tab_global, tab_city, tab_kw = st.tabs(["🌎 Global SKU View", "📍 Regional Analysis", "🔍 Keyword Performance"])
 
         with tab_global:
-            st.subheader("National Product Performance (Summed Across All Regions)")
+            st.subheader("National Product Performance (Consolidated)")
             global_df = filtered.groupby(['ITEM_TYPE', 'PRODUCT_NAME']).agg({
                 'TOTAL_GMV': 'sum', 
                 'TOTAL_BUDGET_BURNT': 'sum', 
@@ -130,7 +133,6 @@ if uploaded_file:
             
             with col_right:
                 st.subheader("🛑 Non-Performing Keywords (by Campaign)")
-                # Showing 0 GMV instances by Campaign + Keyword
                 non_perf = filtered[filtered['TOTAL_GMV'] == 0].groupby(['CITY', 'CAMPAIGN_NAME', 'KEYWORD']).agg({
                     'TOTAL_GMV': 'sum', 
                     'TOTAL_BUDGET_BURNT': 'sum', 
@@ -138,8 +140,6 @@ if uploaded_file:
                 }).reset_index()
                 non_perf['ROAS'] = 0.00
                 non_perf['TOTAL_BUDGET_BURNT'] = non_perf['TOTAL_BUDGET_BURNT'].round(2)
-                
-                st.warning("A keyword may appear in both tables if it generates sales in one city but fails in another.")
                 st.dataframe(non_perf.sort_values('TOTAL_BUDGET_BURNT', ascending=False), use_container_width=True)
                 st.download_button("Export Wastage Report", non_perf.to_csv(index=False), "wastage_report.csv")
 
@@ -156,10 +156,9 @@ if uploaded_file:
 
         with e2:
             st.write("**Direct Attribution Analysis**")
-            st.info("Direct Ratio measures 'Last-Click' conversion efficiency.")
             st.metric("Avg Direct Sales Ratio", f"{filtered['DIRECT_RATIO'].mean():.2%}")
 
     except Exception as e:
-        st.error(f"Error processing file: {e}. Ensure you are uploading the raw Swiggy Granular Report.")
+        st.error(f"Error processing file: {e}")
 else:
-    st.info("Waiting for Swiggy report upload...")
+    st.info("Please upload the Swiggy report to view categorized insights.")
