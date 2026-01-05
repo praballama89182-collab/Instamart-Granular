@@ -67,6 +67,8 @@ if uploaded_file:
         sel_cities = st.sidebar.multiselect("Cities", cities, default=cities)
         cats = sorted(df['ITEM_TYPE'].unique())
         sel_cats = st.sidebar.multiselect("Categories", cats, default=cats)
+        
+        # Apply filters
         filtered = df[(df['CITY'].isin(sel_cities)) & (df['ITEM_TYPE'].isin(sel_cats))]
 
         # Top KPI Metrics
@@ -88,68 +90,61 @@ if uploaded_file:
         ])
 
         with t1:
-            st.subheader("Day-wise Efficiency")
-            weekly = filtered.groupby(['Day_Num', 'Day_Name']).agg({
-                'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'
-            }).reset_index().sort_values('Day_Num')
+            st.subheader("Revenue vs Investment by Day")
+            weekly = filtered.groupby(['Day_Num', 'Day_Name']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'}).reset_index().sort_values('Day_Num')
             day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-            fig1 = px.bar(weekly, x='Day_Name', y='TOTAL_GMV', title="Total GMV by Day (Sales)",
-                          category_orders={"Day_Name": day_order}, text_auto='.2s')
+            fig1 = px.bar(weekly, x='Day_Name', y='TOTAL_GMV', title="Daily Revenue (GMV)", category_orders={"Day_Name": day_order}, text_auto='.2s')
             fig1.update_traces(marker_color='#B7E4C7')
             st.plotly_chart(fig1, use_container_width=True)
 
-            fig2 = px.bar(weekly, x='Day_Name', y='TOTAL_BUDGET_BURNT', title="Total Spend by Day (Investment)",
-                          category_orders={"Day_Name": day_order}, text_auto='.2s')
+            fig2 = px.bar(weekly, x='Day_Name', y='TOTAL_BUDGET_BURNT', title="Daily Spend", category_orders={"Day_Name": day_order}, text_auto='.2s')
             fig2.update_traces(marker_color='#A2D2FF')
             st.plotly_chart(fig2, use_container_width=True)
 
         with t2:
-            st.subheader("🛑 Spend Wastage (Money Leakage)")
-            st.error("Showing keywords where you **Spent Money** but made **Zero Sales**.")
-            # We group here to show the most expensive wasted keywords first
-            wastage = filtered[filtered['TOTAL_GMV'] == 0].groupby(['KEYWORD']).agg({
+            st.subheader("🛑 Spend Wastage (By Campaign & Keyword)")
+            st.error("Budget spent on Keywords that generated ₹0 Sales.")
+            # Added CAMPAIGN_NAME to group to avoid confusion
+            wastage = filtered[filtered['TOTAL_GMV'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).agg({
                 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_IMPRESSIONS': 'sum', 'TOTAL_CLICKS': 'sum'
             }).reset_index()
             
             if not wastage.empty:
-                st.info(f"Analysis: Found **{len(wastage)}** keywords currently burning budget with 0 sales.")
                 st.dataframe(wastage.sort_values('TOTAL_BUDGET_BURNT', ascending=False), use_container_width=True)
             else:
                 st.success("No wastage found!")
 
         with t3:
             st.subheader("👻 Zero Reach (Low Bid Warning)")
-            st.warning("Keywords with **0 Impressions**. These are targeting but not getting any views.")
-            zero_reach = filtered[filtered['TOTAL_IMPRESSIONS'] == 0].groupby(['KEYWORD']).size().reset_index(name='Occurrences')
-            
+            st.warning("Keywords with 0 Impressions (not getting shown to users).")
+            # Added CAMPAIGN_NAME here too
+            zero_reach = filtered[filtered['TOTAL_IMPRESSIONS'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).size().reset_index(name='Occurrences')
             if not zero_reach.empty:
                 st.dataframe(zero_reach, use_container_width=True)
             else:
-                st.info("✅ All active keywords are receiving impressions (100% Reach).")
+                st.info("✅ All active keywords are receiving reach.")
 
         with t4:
-            st.subheader("✅ Winning Keywords")
-            st.success("Keywords that generated **at least one sale** (GMV > 0).")
-            winners = filtered[filtered['TOTAL_GMV'] > 0].groupby('KEYWORD').agg({
+            st.subheader("✅ Winning Keywords (By Campaign & Keyword)")
+            st.success("Keywords that successfully generated Sales.")
+            # Added CAMPAIGN_NAME to group to show specifically which campaign won
+            winners = filtered[filtered['TOTAL_GMV'] > 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).agg({
                 'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CONVERSIONS': 'sum'
             }).reset_index()
             
             if not winners.empty:
                 winners['ROAS'] = (winners['TOTAL_GMV'] / winners['TOTAL_BUDGET_BURNT']).round(2)
-                st.info(f"Analysis: Only **{len(winners)}** keywords have converted in this period.")
                 st.dataframe(winners.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
             else:
-                st.warning("No sales generated yet for any keywords in this selection.")
+                st.warning("No converting keywords found.")
 
         with t5:
             st.subheader("📍 Performance by City & Category")
-            reg = filtered.groupby(['CITY', 'ITEM_TYPE']).agg({
-                'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CONVERSIONS': 'sum'
-            }).reset_index()
+            reg = filtered.groupby(['CITY', 'ITEM_TYPE']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CONVERSIONS': 'sum'}).reset_index()
             st.dataframe(reg.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
 
     else:
-        st.info("Upload your Swiggy report to begin.")
+        st.info("Please upload a valid Swiggy report.")
 else:
-    st.info("Please upload the Swiggy Granular CSV to start.")
+    st.info("Upload Swiggy Granular CSV to begin.")
