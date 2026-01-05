@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 # --- Page Config ---
 st.set_page_config(page_title="Swiggy Instamart Precision Strategy", layout="wide")
@@ -50,7 +51,7 @@ def load_grn_data(file):
         return df
     except: return None
 
-# --- File Uploaders ---
+# --- Sidebar Uploaders ---
 st.sidebar.header("📁 Upload Reports")
 ad_file = st.sidebar.file_uploader("1. Advertising Report (Required)", type=['csv'])
 grn_file = st.sidebar.file_uploader("2. GRN Inventory Report (Optional)", type=['csv'])
@@ -91,13 +92,11 @@ if ad_file:
         o4.metric("Qty Sold", f"{total_qty} units")
 
         if df_grn is not None:
-            st.success("✅ GRN Data Integrated: Inventory metrics are now active.")
-            g1, g2 = st.columns(2)
+            st.success("✅ GRN Data Integrated")
             total_stock = df_grn['ReceivedQty'].sum()
-            g1.metric("Total Stock Received (GRN)", f"{int(total_stock)} units")
-            g2.metric("Stock-to-Sales Ratio", f"{(total_qty/total_stock*100 if total_stock > 0 else 0):.1f}%")
+            st.info(f"Inventory Audit: **{int(total_stock)}** units received. Stock-to-Sales: **{(total_qty/total_stock*100 if total_stock > 0 else 0):.1f}%**")
         else:
-            st.info("💡 Upload a GRN report to unlock Stock-to-Sales auditing.")
+            st.info("💡 Upload a GRN report for stock auditing.")
 
         # --- REORDERED TABS ---
         t1, t2, t3, t4, t5 = st.tabs([
@@ -119,7 +118,6 @@ if ad_file:
                 st.plotly_chart(px.bar(comparison, x='CITY', y=['ReceivedQty', 'Qty Sold'], barmode='group', title="Stock vs Sales by Region", color_discrete_map={'ReceivedQty': '#A2D2FF', 'Qty Sold': '#B7E4C7'}), use_container_width=True)
             else:
                 st.dataframe(sales_city.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
-                st.warning("Upload GRN report to see Stock levels side-by-side.")
 
         with t2:
             st.subheader("🛑 Spend Wastage (0 Sales)")
@@ -132,11 +130,35 @@ if ad_file:
             st.dataframe(winners.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
 
         with t4:
-            st.subheader("📅 Weekly Trends (Best Days)")
+            st.subheader("📅 Combined Weekly Trends & Efficiency")
             weekly = filtered_ad.groupby(['Day_Num', 'Day_Name']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'}).reset_index().sort_values('Day_Num')
             day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            st.plotly_chart(px.bar(weekly, x='Day_Name', y='TOTAL_GMV', title="Best Revenue Days", category_orders={"Day_Name": day_order}, color_discrete_sequence=['#B7E4C7']), use_container_width=True)
-            st.plotly_chart(px.bar(weekly, x='Day_Name', y='TOTAL_BUDGET_BURNT', title="Highest Spend Days", category_orders={"Day_Name": day_order}, color_discrete_sequence=['#A2D2FF']), use_container_width=True)
+            
+            # --- COMBINED CHART (Dual Axis) ---
+            fig = go.Figure()
+            # Bar for GMV
+            fig.add_trace(go.Bar(
+                x=weekly['Day_Name'], y=weekly['TOTAL_GMV'],
+                name='Total GMV', marker_color='#B7E4C7',
+                yaxis='y1', text=weekly['TOTAL_GMV'].apply(lambda x: f"₹{x/1000:.1f}k"), textposition='auto'
+            ))
+            # Line for Spend Trend
+            fig.add_trace(go.Scatter(
+                x=weekly['Day_Name'], y=weekly['TOTAL_BUDGET_BURNT'],
+                name='Budget Spent', line=dict(color='#219EBC', width=4, shape='spline'),
+                yaxis='y2', mode='lines+markers'
+            ))
+
+            fig.update_layout(
+                title="Efficiency Analysis: Revenue (Bars) vs Investment (Trend Line)",
+                xaxis={'categoryorder':'array', 'categoryarray':day_order},
+                yaxis=dict(title="GMV (Revenue ₹)", titlefont=dict(color="#2D6A4F"), tickfont=dict(color="#2D6A4F")),
+                yaxis2=dict(title="Spend (Investment ₹)", titlefont=dict(color="#219EBC"), tickfont=dict(color="#219EBC"),
+                            overlaying='y', side='right'),
+                legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.5)'),
+                template="plotly_white", hovermode="x unified"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
         with t5:
             st.subheader("👻 Zero Reach Audit")
@@ -144,6 +166,6 @@ if ad_file:
             st.dataframe(zero, use_container_width=True)
 
     else:
-        st.error("Invalid Ad Report format. Please check your CSV.")
+        st.error("Invalid Ad Report format.")
 else:
-    st.info("👋 Welcome! Please upload your Swiggy Ad Report in the sidebar to begin.")
+    st.info("👋 Please upload your Ad Report in the sidebar to begin.")
