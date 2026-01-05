@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 # --- App Configuration ---
 st.set_page_config(page_title="Swiggy Instamart Strategy", layout="wide")
@@ -98,7 +99,7 @@ if ad_file:
                 "📍 Regional Stock & GMV", 
                 "🛑 Spend Wastage", 
                 "✅ Winning Keywords", 
-                "📅 Weekly Trends (Best Days)", 
+                "📅 Weekly Trends", 
                 "👻 Zero Reach",
                 "💡 Strategy Recommendations"
             ])
@@ -106,72 +107,96 @@ if ad_file:
             with tabs[0]:
                 st.subheader("Regional Performance Audit")
                 sales_city = filtered_ad.groupby('CITY').agg({'TOTAL_GMV': 'sum', 'TOTAL_CONVERSIONS': 'sum'}).reset_index().rename(columns={'TOTAL_CONVERSIONS': 'Qty Sold'})
-                
                 if df_grn is not None:
-                    # 1. High Level City View
                     stock_city = df_grn.groupby('Mapped_City').agg({'ReceivedQty': 'sum'}).reset_index().rename(columns={'Mapped_City': 'CITY'})
                     comparison = pd.merge(sales_city, stock_city, on='CITY', how='outer').fillna(0)
                     st.write("### City-Level Summary")
                     st.dataframe(comparison.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
                     
-                    # 2. Detailed Product View per Region
                     st.divider()
-                    st.write("### 📦 Top 10 Products by Stock (Per Region)")
-                    
-                    # Filter GRN to Top 10 products per Facility based on ReceivedQty
+                    st.write("### 📦 Product Inventory vs Regional Demand")
                     top_10_grn = df_grn.groupby(['Mapped_City', 'SkuDescription']).agg({'ReceivedQty': 'sum'}).reset_index()
                     top_10_grn = top_10_grn.sort_values(['Mapped_City', 'ReceivedQty'], ascending=[True, False]).groupby('Mapped_City').head(10)
-                    
-                    # Clean up descriptions for better display
                     top_10_grn['Product'] = top_10_grn['SkuDescription'].str[:50] + "..."
                     
-                    fig_grn_prod = px.bar(top_10_grn, x='ReceivedQty', y='Product', color='Mapped_City',
-                                          orientation='h', title="Top 10 Products Received per Region",
-                                          labels={'Mapped_City': 'Region', 'ReceivedQty': 'Qty Received'},
-                                          height=600, template="plotly_white",
-                                          color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig_grn_prod = px.bar(top_10_grn, x='ReceivedQty', y='Product', color='Mapped_City', orientation='h', title="Top Products Received per Region", height=600, template="plotly_white", color_discrete_sequence=px.colors.qualitative.Pastel)
                     fig_grn_prod.update_layout(yaxis={'categoryorder':'total ascending'})
                     st.plotly_chart(fig_grn_prod, use_container_width=True)
-                    
-                    st.write("Detailed GRN Product List (Top 10 per Facility):")
-                    st.dataframe(top_10_grn[['Mapped_City', 'SkuDescription', 'ReceivedQty']].rename(columns={'Mapped_City': 'Region', 'SkuDescription': 'Product Name'}), use_container_width=True)
                 else:
                     st.dataframe(sales_city.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
-                    st.info("Upload GRN Report to unlock Product-Level Inventory View.")
 
-            # (Other tabs t2-t6 remain as per your working code)
             with tabs[1]:
+                st.subheader("🛑 Spend Wastage (0 Sales)")
                 wastage = filtered_ad[filtered_ad['TOTAL_GMV'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).agg({'TOTAL_BUDGET_BURNT': 'sum'}).reset_index()
                 st.dataframe(wastage.sort_values('TOTAL_BUDGET_BURNT', ascending=False), use_container_width=True)
 
             with tabs[2]:
+                st.subheader("✅ Winning Keywords")
                 winners = filtered_ad[filtered_ad['TOTAL_GMV'] > 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum', 'TOTAL_CONVERSIONS': 'sum'}).reset_index()
                 st.dataframe(winners.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
 
             with tabs[3]:
+                st.subheader("📅 Weekly GMV vs. Spend Efficiency")
                 weekly = filtered_ad.groupby(['Day_Num', 'Day_Name']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'}).reset_index().sort_values('Day_Num')
                 day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                
                 if not weekly.empty:
-                    fig_gmv = px.bar(weekly, x='Day_Name', y='TOTAL_GMV', title="Revenue by Day", category_orders={"Day_Name": day_order}, color_discrete_sequence=['#B7E4C7'], template="plotly_white", text_auto='.2s')
-                    st.plotly_chart(fig_gmv, use_container_width=True)
-                    fig_spend = px.bar(weekly, x='Day_Name', y='TOTAL_BUDGET_BURNT', title="Spend by Day", category_orders={"Day_Name": day_order}, color_discrete_sequence=['#A2D2FF'], template="plotly_white", text_auto='.2s')
-                    st.plotly_chart(fig_spend, use_container_width=True)
+                    # Improved Combined Dual-Axis Chart
+                    fig = go.Figure()
+                    # GMV Bars
+                    fig.add_trace(go.Bar(
+                        x=weekly['Day_Name'], y=weekly['TOTAL_GMV'],
+                        name='Revenue (GMV)', marker_color='#B7E4C7',
+                        text=weekly['TOTAL_GMV'].apply(lambda x: f"₹{x/1000:.1f}k"), textposition='auto'
+                    ))
+                    # Spend Line (Trend Line)
+                    fig.add_trace(go.Scatter(
+                        x=weekly['Day_Name'], y=weekly['TOTAL_BUDGET_BURNT'],
+                        name='Spend Trend', line=dict(color='#219EBC', width=4, shape='spline'),
+                        yaxis='y2', mode='lines+markers'
+                    ))
+
+                    fig.update_layout(
+                        title="Efficiency Trend: Revenue (Bars) vs. Spend (Line)",
+                        xaxis=dict(categoryorder='array', categoryarray=day_order, title="Day of the Week"),
+                        yaxis=dict(title="GMV (Revenue ₹)", side="left", showgrid=True),
+                        yaxis2=dict(title="Spend (Investment ₹)", side="right", overlaying="y", showgrid=False),
+                        template="plotly_white", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        hovermode="x unified", height=500
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No data available for the selected filters.")
 
             with tabs[4]:
+                st.subheader("👻 Zero Reach Audit")
                 zero = filtered_ad[filtered_ad['TOTAL_IMPRESSIONS'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).size().reset_index(name='Count')
                 st.dataframe(zero, use_container_width=True)
 
             with tabs[5]:
-                st.subheader("💡 Actionable Strategy Recommendations")
+                st.subheader("💡 Strategic Recommendations")
+                
+                # Efficiency Analysis
                 weekly['ROAS'] = weekly['TOTAL_GMV'] / weekly['TOTAL_BUDGET_BURNT'].replace(0, 1)
                 best_day = weekly.loc[weekly['ROAS'].idxmax()]
-                st.info(f"🚀 **Scale Up:** Increase budget by 20% on **{best_day['Day_Name']}s** (Peak ROAS: {best_day['ROAS']:.2f}x).")
+                peak_day = weekly.loc[weekly['TOTAL_GMV'].idxmax()]
                 
-                top_wasted = wastage.sort_values('TOTAL_BUDGET_BURNT', ascending=False).head(5)
-                if not top_wasted.empty:
-                    st.warning(f"**Stop Loss:** Audit the top 5 wasted keywords below to save ₹{top_wasted['TOTAL_BUDGET_BURNT'].sum():,.0f} in potential leakage.")
-                    st.table(top_wasted)
+                st.markdown("### 📈 Scaling Opportunities")
+                st.info(f"**Day to Scale:** **{best_day['Day_Name']}** is your most efficient day with a ROAS of **{best_day['ROAS']:.2f}x**. Increase budget by 15-20% here.")
+                st.success(f"**Volume Peak:** Your highest revenue falls on **{peak_day['Day_Name']}**. Ensure bidding is aggressive enough to capture maximum share.")
 
+                st.markdown("### 🛑 Efficiency Gaps")
+                # Identify High Spend / Low ROAS days
+                low_roas_day = weekly.loc[weekly['ROAS'].idxmin()]
+                if low_roas_day['ROAS'] < (combined_roas * 0.7):
+                    st.warning(f"**Action Required:** **{low_roas_day['Day_Name']}** is significantly underperforming. Review campaigns for keyword wastage or pause weak-performing sets on this day.")
+
+                # Wastage Alert
+                top_wasted = wastage.sort_values('TOTAL_BUDGET_BURNT', ascending=False).head(3)
+                if not top_wasted.empty:
+                    st.error(f"**Stop Budget Leakage:** Audit the top 3 wasted keywords (Zero Sales) in the Wastage tab to save ~₹{top_wasted['TOTAL_BUDGET_BURNT'].sum():,.0f} immediately.")
+        else:
+            st.warning("No data matches your filter selection.")
     else:
         st.error("Error parsing Ad Report.")
 else:
