@@ -101,13 +101,14 @@ if ad_file:
             if df_grn is not None:
                 st.success("✅ GRN Data Integrated. Inventory Audit is active.")
 
-            # --- TABS (Corrected Reordered Sequence) ---
-            t1, t2, t3, t4, t5 = st.tabs([
+            # --- TABS ---
+            t1, t2, t3, t4, t5, t6 = st.tabs([
                 "📍 Regional Stock & GMV", 
                 "🛑 Spend Wastage", 
                 "✅ Winning Keywords", 
                 "📅 Weekly Trends (Best Days)", 
-                "👻 Zero Reach"
+                "👻 Zero Reach",
+                "💡 Strategy Recommendations"
             ])
 
             with t1:
@@ -143,28 +144,15 @@ if ad_file:
                 day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
                 
                 if not weekly.empty:
-                    # Revenue Chart
                     fig_gmv = px.bar(weekly, x='Day_Name', y='TOTAL_GMV', title="Revenue by Day (GMV)",
                                      category_orders={"Day_Name": day_order},
                                      color_discrete_sequence=['#B7E4C7'], template="plotly_white", text_auto='.2s')
                     st.plotly_chart(fig_gmv, use_container_width=True)
 
-                    # Spend Chart
                     fig_spend = px.bar(weekly, x='Day_Name', y='TOTAL_BUDGET_BURNT', title="Investment by Day (Spend)",
                                        category_orders={"Day_Name": day_order},
                                        color_discrete_sequence=['#A2D2FF'], template="plotly_white", text_auto='.2s')
                     st.plotly_chart(fig_spend, use_container_width=True)
-
-                    # --- RECOMMENDATIONS ---
-                    st.divider()
-                    st.subheader("💡 Smart Strategy Recommendations")
-                    weekly['ROAS'] = weekly['TOTAL_GMV'] / weekly['TOTAL_BUDGET_BURNT'].replace(0, 1)
-                    best_roas = weekly.loc[weekly['ROAS'].idxmax()]
-                    peak_sales = weekly.loc[weekly['TOTAL_GMV'].idxmax()]
-                    
-                    r1, r2 = st.columns(2)
-                    r1.info(f"🚀 **Efficiency Champion:** **{best_roas['Day_Name']}** delivers the highest ROAS ({best_roas['ROAS']:.2f}x). Scale budgets here.")
-                    r2.success(f"💰 **Revenue Peak:** **{peak_sales['Day_Name']}** brings the most volume. Ensure 100% stock availability.")
                 else:
                     st.info("No weekly data found for this selection.")
 
@@ -172,9 +160,49 @@ if ad_file:
                 st.subheader("👻 Zero Reach Audit")
                 zero = filtered_ad[filtered_ad['TOTAL_IMPRESSIONS'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).size().reset_index(name='Count')
                 st.dataframe(zero, use_container_width=True)
+
+            with t6:
+                st.subheader("💡 Actionable Strategy Recommendations")
+                
+                # 1. Budget Scaling Recommendation
+                weekly['ROAS'] = weekly['TOTAL_GMV'] / weekly['TOTAL_BUDGET_BURNT'].replace(0, 1)
+                best_day = weekly.loc[weekly['ROAS'].idxmax()]
+                st.markdown(f"### 📈 Scaling Strategy")
+                st.info(f"**Action Item:** Increase daily budget for all top-performing campaigns by **20-30% on {best_day['Day_Name']}s**.")
+                st.write(f"Reasoning: {best_day['Day_Name']} is your most efficient day with an average ROAS of **{best_day['ROAS']:.2f}x**.")
+                
+                # 2. Wastage & Optimization
+                st.markdown(f"### 🛑 Budget Leakage Control")
+                top_wasted = wastage.sort_values('TOTAL_BUDGET_BURNT', ascending=False).head(5)
+                if not top_wasted.empty:
+                    st.warning(f"**Action Item:** Immediately audit/pause the following keywords in their respective campaigns as they have ₹0 GMV despite high spend.")
+                    st.table(top_wasted[['CAMPAIGN_NAME', 'KEYWORD', 'TOTAL_BUDGET_BURNT']].rename(columns={'TOTAL_BUDGET_BURNT': 'Amount Wasted (₹)'}))
+                
+                # 3. Inventory Recommendation (If GRN is available)
+                if df_grn is not None:
+                    st.markdown(f"### 📦 Inventory & Stocking")
+                    stock_city = df_grn.groupby('Mapped_City').agg({'ReceivedQty': 'sum'}).reset_index().rename(columns={'Mapped_City': 'CITY'})
+                    inventory_merge = pd.merge(sales_city, stock_city, on='CITY', how='inner')
+                    inventory_merge['Sell_Through'] = (inventory_merge['Qty Sold'] / inventory_merge['ReceivedQty'].replace(0, 1) * 100)
+                    critical_cities = inventory_merge[inventory_merge['Sell_Through'] > 75]
+                    
+                    if not critical_cities.empty:
+                        st.error(f"**Action Item:** Restock immediately in the following regions to prevent Stock-Outs and lost sales revenue.")
+                        st.table(critical_cities[['CITY', 'Qty Sold', 'ReceivedQty', 'Sell_Through']].rename(columns={'ReceivedQty': 'Stock Received', 'Sell_Through': 'Sell-Through %'}))
+                    else:
+                        st.success("Current inventory levels across all regions appear healthy relative to current sales velocity.")
+
+                # 4. Keyword Promotion
+                st.markdown(f"### ✅ Reach & Expansion")
+                winning_kws = winners.sort_values('TOTAL_GMV', ascending=False).head(5)
+                if not winning_kws.empty:
+                    st.success(f"**Action Item:** Move these 'Winning Keywords' into a dedicated high-priority campaign with aggressive bidding to maximize capture.")
+                    st.write("These keywords are proven revenue drivers.")
+                    st.table(winning_kws[['KEYWORD', 'TOTAL_GMV', 'TOTAL_CONVERSIONS']])
+
         else:
             st.warning("No data matches your filter selection.")
     else:
         st.error("Error: Could not parse Advertising Report.")
 else:
-    st.info("👋 Please upload your Advertising Report in the sidebar to begin.")
+    st.info("👋 Welcome! Please upload your Advertising Report in the sidebar to begin.")
