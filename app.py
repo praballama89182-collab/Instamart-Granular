@@ -10,9 +10,9 @@ st.markdown("Extreme micromanagement: Track every Campaign, Category, and Keywor
 
 # --- Helper: Robust Data Loading ---
 def load_data_robust(file):
-    # Read the file to find the header row (typically row 6 in Swiggy reports)
     df_raw = pd.read_csv(file, header=None)
     
+    # Detect Header (Row 6 in your specific file)
     header_idx = 0
     for i, row in df_raw.iterrows():
         if 'METRICS_DATE' in row.values:
@@ -23,7 +23,7 @@ def load_data_robust(file):
     df.columns = df.iloc[0]
     df = df.drop(df.index[0]).reset_index(drop=True)
     
-    # Numeric Conversion for precision calculations
+    # Numeric Conversion
     numeric_cols = [
         'TOTAL_IMPRESSIONS', 'TOTAL_BUDGET', 'TOTAL_BUDGET_BURNT', 
         'TOTAL_CLICKS', 'TOTAL_A2C', 'TOTAL_GMV', 'TOTAL_CONVERSIONS'
@@ -32,15 +32,14 @@ def load_data_robust(file):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
-    # Date processing for the "Best Days" analysis
+    # Date processing
     if 'METRICS_DATE' in df.columns:
         df['METRICS_DATE'] = pd.to_datetime(df['METRICS_DATE'], errors='coerce')
         df['Day_of_Week'] = df['METRICS_DATE'].dt.day_name()
-        df['Day_Num'] = df['METRICS_DATE'].dt.dayofweek # Monday=0 to Sunday=6
+        df['Day_Num'] = df['METRICS_DATE'].dt.dayofweek # Mon=0, Sun=6
             
     return df
 
-# --- 1. File Uploader ---
 uploaded_file = st.file_uploader("Upload Swiggy Granular Report (CSV)", type=['csv'])
 
 if uploaded_file:
@@ -55,86 +54,81 @@ if uploaded_file:
             if 'puttu podi' in n: return 'PUTTU PODI'
             if any(x in n for x in ['appam', 'idiyappam', 'pathiri']): return 'APPAM, IDIYAPPAM'
             return 'OTHERS'
-
         df['ITEM_TYPE'] = df['PRODUCT_NAME'].apply(map_item_type)
-        
-        # Strategy Calculations
-        df['ROAS'] = (df['TOTAL_GMV'] / df['TOTAL_BUDGET_BURNT'].replace(0, 0.0001)).round(2)
 
-        # Sidebar Filters
+        # Filters
         st.sidebar.header("Precision Filters")
         cities = st.sidebar.multiselect("Cities", options=sorted(df['CITY'].unique()), default=df['CITY'].unique())
         cats = st.sidebar.multiselect("Categories", options=sorted(df['ITEM_TYPE'].unique()), default=df['ITEM_TYPE'].unique())
-        
         filtered = df[(df['CITY'].isin(cities)) & (df['ITEM_TYPE'].isin(cats))]
 
-        # --- Main Navigation Tabs ---
+        # Tabs
         t1, t2, t3, t4, t5, t6 = st.tabs([
             "🌎 Global SKU View", "📍 Regional Analysis", "✅ Winning Keywords", 
             "🛑 Spend Wastage", "👻 Zero Visibility", "📅 Weekly Trends"
         ])
 
-        # (Keeping your original logic for t1-t5 here...)
-        with t1:
-             st.subheader("National SKU Performance")
-             st.dataframe(filtered.groupby('PRODUCT_NAME')[['TOTAL_GMV', 'TOTAL_BUDGET_BURNT', 'TOTAL_CONVERSIONS']].sum(), use_container_width=True)
-
-        # --- NEW: Weekly Trends Logic ---
         with t6:
-            st.subheader("Weekly Efficiency Analysis (Monday to Sunday)")
+            st.subheader("Weekly Revenue & Investment Analysis")
             
             # Aggregate data by day
             weekly_perf = filtered.groupby(['Day_Num', 'Day_of_Week']).agg({
-                'TOTAL_CONVERSIONS': 'sum',
+                'TOTAL_GMV': 'sum',
                 'TOTAL_BUDGET_BURNT': 'sum'
             }).reset_index().sort_values('Day_Num')
 
             if not weekly_perf.empty:
-                # Key Highlights
-                best_day = weekly_perf.loc[weekly_perf['TOTAL_CONVERSIONS'].idxmax()]
-                h1, h2 = st.columns(2)
-                h1.metric("Highest Order Volume Day", f"{best_day['Day_of_Week']}")
-                h2.metric("Total Weekly Conversions", f"{int(weekly_perf['TOTAL_CONVERSIONS'].sum())}")
+                # Top Summary Metrics
+                m1, m2 = st.columns(2)
+                best_gmv_day = weekly_perf.loc[weekly_perf['TOTAL_GMV'].idxmax()]
+                m1.success(f"💰 Best Sales Day: **{best_gmv_day['Day_of_Week']}** (₹{best_gmv_day['TOTAL_GMV']:,.2f})")
+                m2.info(f"💸 Highest Spend Day: **{weekly_perf.loc[weekly_perf['TOTAL_BUDGET_BURNT'].idxmax()]['Day_of_Week']}**")
 
-                # Plotly Chart with Cool Tones
-                fig = go.Figure()
-                
-                # Bars for Orders (Light Cool Teal)
-                fig.add_trace(go.Bar(
+                # --- Chart 1: Daily GMV (Light Green/Teal) ---
+                fig_gmv = go.Figure()
+                fig_gmv.add_trace(go.Bar(
                     x=weekly_perf['Day_of_Week'], 
-                    y=weekly_perf['TOTAL_CONVERSIONS'],
-                    name='Orders',
-                    marker_color='#A2D2FF',
-                    opacity=0.85
+                    y=weekly_perf['TOTAL_GMV'],
+                    name='Total GMV',
+                    marker_color='#B7E4C7', # Light Mint Green
+                    text=weekly_perf['TOTAL_GMV'].round(0),
+                    textposition='auto',
                 ))
-                
-                # Line for Spend (Deep Cool Blue)
-                fig.add_trace(go.Scatter(
+                fig_gmv.update_layout(
+                    title="Total GMV by Day (Sales Performance)",
+                    template="plotly_white",
+                    yaxis_title="GMV (₹)",
+                    height=400
+                )
+                st.plotly_chart(fig_gmv, use_container_width=True)
+
+                # --- Chart 2: Daily Spend (Light Blue) ---
+                fig_spend = go.Figure()
+                fig_spend.add_trace(go.Bar(
                     x=weekly_perf['Day_of_Week'], 
                     y=weekly_perf['TOTAL_BUDGET_BURNT'],
-                    name='Spend (₹)',
-                    yaxis='y2',
-                    line=dict(color='#219EBC', width=3)
+                    name='Total Spend',
+                    marker_color='#A2D2FF', # Light Sky Blue
+                    text=weekly_perf['TOTAL_BUDGET_BURNT'].round(0),
+                    textposition='auto',
                 ))
-
-                fig.update_layout(
+                fig_spend.update_layout(
+                    title="Total Budget Burnt by Day (Investment)",
                     template="plotly_white",
-                    yaxis=dict(title="Number of Orders"),
-                    yaxis2=dict(title="Spend (₹)", overlaying='y', side='right'),
-                    legend=dict(x=0, y=1.1, orientation='h'),
-                    hovermode="x unified"
+                    yaxis_title="Spend (₹)",
+                    height=400
                 )
+                st.plotly_chart(fig_spend, use_container_width=True)
                 
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Highlighted Data Table
-                st.markdown("### 📊 Daily Summary Table")
-                st.table(weekly_perf[['Day_of_Week', 'TOTAL_CONVERSIONS', 'TOTAL_BUDGET_BURNT']]
-                         .rename(columns={'TOTAL_CONVERSIONS': 'Orders', 'TOTAL_BUDGET_BURNT': 'Total Spend'}))
+                # Raw data comparison
+                st.markdown("### 📊 Daily Efficiency Breakdown")
+                weekly_perf['ROAS'] = (weekly_perf['TOTAL_GMV'] / weekly_perf['TOTAL_BUDGET_BURNT'].replace(0,1)).round(2)
+                st.table(weekly_perf[['Day_of_Week', 'TOTAL_GMV', 'TOTAL_BUDGET_BURNT', 'ROAS']]
+                         .rename(columns={'TOTAL_GMV':'GMV (₹)', 'TOTAL_BUDGET_BURNT':'Spend (₹)'}))
             else:
-                st.info("No date information found in the report.")
+                st.info("No date-wise data found.")
 
     except Exception as e:
-        st.error(f"Analysis Error: {e}")
+        st.error(f"Error: {e}")
 else:
     st.info("Please upload the Swiggy report to start.")
