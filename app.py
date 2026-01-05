@@ -1,15 +1,14 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import plotly.express as px
 
 # --- App Configuration ---
 st.set_page_config(page_title="Swiggy Instamart Strategy", layout="wide")
 
 st.title("🚀 Swiggy Instamart: Precision Strategy & Efficiency Dashboard")
-st.markdown("Unified Micromanagement: Advertising Performance + Inventory (GRN) Audit.")
+st.markdown("Unified Micromanagement: Advertising Performance + Optional GRN Inventory Audit.")
 
-# --- Facility to City Mapping ---
+# --- Helper: Facility Mapping ---
 def map_facility_to_city(fac):
     f = str(fac).upper()
     if 'MUM' in f: return 'Mumbai'
@@ -20,7 +19,7 @@ def map_facility_to_city(fac):
     if 'PUN' in f: return 'Pune'
     return 'Other'
 
-# --- Data Loaders ---
+# --- Robust Data Loaders ---
 def load_ad_data(file):
     try:
         raw_data = pd.read_csv(file, header=None, encoding='latin1')
@@ -34,7 +33,7 @@ def load_ad_data(file):
         df = pd.read_csv(file, skiprows=header_idx, encoding='latin1')
         df.columns = [str(c).strip().upper() for c in df.columns]
         
-        # Clean numeric data (Remove commas and convert)
+        # Clean numeric data
         num_cols = ['TOTAL_GMV', 'TOTAL_BUDGET_BURNT', 'TOTAL_CONVERSIONS', 'TOTAL_IMPRESSIONS']
         for col in num_cols:
             if col in df.columns:
@@ -59,15 +58,14 @@ def load_grn_data(file):
 
 # --- Sidebar Uploaders ---
 st.sidebar.header("📁 Data Upload Center")
-ad_file = st.sidebar.file_uploader("1. Ad Report (Required)", type=['csv'])
-grn_file = st.sidebar.file_uploader("2. GRN Report (Optional)", type=['csv'])
+ad_file = st.sidebar.file_uploader("1. Advertising Report (Required)", type=['csv'])
+grn_file = st.sidebar.file_uploader("2. GRN Inventory Report (Optional)", type=['csv'])
 
 if ad_file:
     df_ad = load_ad_data(ad_file)
     df_grn = load_grn_data(grn_file) if grn_file else None
     
     if df_ad is not None:
-        # Category Mapping
         def map_cat(name):
             n = str(name).lower()
             if 'palappam' in n: return 'INSTANT PALAPPAM'
@@ -101,11 +99,9 @@ if ad_file:
             o4.metric("Quantity Sold", f"{total_qty} units")
 
             if df_grn is not None:
-                st.success("✅ GRN Data Integrated.")
-            else:
-                st.info("💡 Tip: Upload a GRN report to compare sales against warehouse stock.")
+                st.success("✅ GRN Data Integrated. Inventory Audit is active.")
 
-            # --- TABS (Reordered) ---
+            # --- TABS (Corrected Reordered Sequence) ---
             t1, t2, t3, t4, t5 = st.tabs([
                 "📍 Regional Stock & GMV", 
                 "🛑 Spend Wastage", 
@@ -123,10 +119,10 @@ if ad_file:
                     comparison = pd.merge(sales_city, stock_city, on='CITY', how='outer').fillna(0)
                     st.dataframe(comparison.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
                     
-                    fig_st = go.Figure()
-                    fig_st.add_trace(go.Bar(x=comparison['CITY'], y=comparison['ReceivedQty'], name='Stock Received', marker_color='#A2D2FF'))
-                    fig_st.add_trace(go.Bar(x=comparison['CITY'], y=comparison['Qty Sold'], name='Qty Sold', marker_color='#B7E4C7'))
-                    fig_st.update_layout(barmode='group', template="plotly_white", title="Stock Received vs Qty Sold")
+                    fig_st = px.bar(comparison, x='CITY', y=['ReceivedQty', 'Qty Sold'], barmode='group',
+                                    title="Stock Received vs Qty Sold by Region",
+                                    color_discrete_map={'ReceivedQty': '#A2D2FF', 'Qty Sold': '#B7E4C7'},
+                                    template="plotly_white")
                     st.plotly_chart(fig_st, use_container_width=True)
                 else:
                     st.dataframe(sales_city.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
@@ -142,60 +138,43 @@ if ad_file:
                 st.dataframe(winners.sort_values('TOTAL_GMV', ascending=False), use_container_width=True)
 
             with t4:
-                st.subheader("📅 Weekly Strategy: Side-by-Side Efficiency")
+                st.subheader("📅 Weekly Efficiency Trends")
                 weekly = filtered_ad.groupby(['Day_Num', 'Day_Name']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'}).reset_index().sort_values('Day_Num')
                 day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
                 
                 if not weekly.empty:
-                    # Using Subplots is the most stable way to avoid ValueErrors
-                    fig = make_subplots(specs=[[{"secondary_y": True}]])
-                    
-                    # Revenue Bars (Left Axis)
-                    fig.add_trace(
-                        go.Bar(x=weekly['Day_Name'], y=weekly['TOTAL_GMV'], name='Revenue (GMV)', marker_color='#B7E4C7', offsetgroup=1),
-                        secondary_y=False
-                    )
-                    
-                    # Spend Bars (Right Axis)
-                    fig.add_trace(
-                        go.Bar(x=weekly['Day_Name'], y=weekly['TOTAL_BUDGET_BURNT'], name='Spend', marker_color='#A2D2FF', offsetgroup=2),
-                        secondary_y=True
-                    )
+                    # Revenue Chart
+                    fig_gmv = px.bar(weekly, x='Day_Name', y='TOTAL_GMV', title="Revenue by Day (GMV)",
+                                     category_orders={"Day_Name": day_order},
+                                     color_discrete_sequence=['#B7E4C7'], template="plotly_white", text_auto='.2s')
+                    st.plotly_chart(fig_gmv, use_container_width=True)
 
-                    fig.update_layout(
-                        title="Weekly Revenue vs. Ad Investment",
-                        template="plotly_white",
-                        xaxis=dict(categoryorder='array', categoryarray=day_order, title="Day of Week"),
-                        yaxis=dict(title="GMV (Revenue ₹)", titlefont=dict(color="#2D6A4F")),
-                        yaxis2=dict(title="Spend (Investment ₹)", titlefont=dict(color="#219EBC"), side="right", showgrid=False),
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        hovermode="x unified"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Spend Chart
+                    fig_spend = px.bar(weekly, x='Day_Name', y='TOTAL_BUDGET_BURNT', title="Investment by Day (Spend)",
+                                       category_orders={"Day_Name": day_order},
+                                       color_discrete_sequence=['#A2D2FF'], template="plotly_white", text_auto='.2s')
+                    st.plotly_chart(fig_spend, use_container_width=True)
 
                     # --- RECOMMENDATIONS ---
                     st.divider()
                     st.subheader("💡 Smart Strategy Recommendations")
-                    weekly['ROAS'] = (weekly['TOTAL_GMV'] / weekly['TOTAL_BUDGET_BURNT'].replace(0, 1)).round(2)
-                    
+                    weekly['ROAS'] = weekly['TOTAL_GMV'] / weekly['TOTAL_BUDGET_BURNT'].replace(0, 1)
                     best_roas = weekly.loc[weekly['ROAS'].idxmax()]
                     peak_sales = weekly.loc[weekly['TOTAL_GMV'].idxmax()]
-                    worst_roas = weekly.loc[weekly['ROAS'].idxmin()]
-
-                    c1, c2, c3 = st.columns(3)
-                    c1.info(f"🚀 **Efficiency Champion:** **{best_roas['Day_Name']}** has the highest ROAS ({best_roas['ROAS']}x). Scale budgets here.")
-                    c2.success(f"💰 **Peak Revenue:** **{peak_sales['Day_Name']}** brings in the most volume. Ensure 100% stock availability.")
-                    c3.warning(f"⚠️ **Efficiency Risk:** **{worst_roas['Day_Name']}** is the least efficient ({worst_roas['ROAS']}x). Optimize keywords for this day.")
+                    
+                    r1, r2 = st.columns(2)
+                    r1.info(f"🚀 **Efficiency Champion:** **{best_roas['Day_Name']}** delivers the highest ROAS ({best_roas['ROAS']:.2f}x). Scale budgets here.")
+                    r2.success(f"💰 **Revenue Peak:** **{peak_sales['Day_Name']}** brings the most volume. Ensure 100% stock availability.")
                 else:
-                    st.info("No data found for this selection.")
+                    st.info("No weekly data found for this selection.")
 
             with t5:
                 st.subheader("👻 Zero Reach Audit")
                 zero = filtered_ad[filtered_ad['TOTAL_IMPRESSIONS'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).size().reset_index(name='Count')
                 st.dataframe(zero, use_container_width=True)
         else:
-            st.warning("No data matches your filters.")
+            st.warning("No data matches your filter selection.")
     else:
         st.error("Error: Could not parse Advertising Report.")
 else:
-    st.info("👋 Welcome! Please upload your Advertising Report in the sidebar to begin.")
+    st.info("👋 Please upload your Advertising Report in the sidebar to begin.")
