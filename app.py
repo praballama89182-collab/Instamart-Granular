@@ -61,7 +61,6 @@ if ad_file:
     df_grn = load_grn_data(grn_file) if grn_file else None
     
     if df_ad is not None:
-        # Category Mapping
         def map_cat(name):
             n = str(name).lower()
             if 'palappam' in n: return 'INSTANT PALAPPAM'
@@ -71,7 +70,6 @@ if ad_file:
         
         df_ad['ITEM_TYPE'] = df_ad['PRODUCT_NAME'].apply(map_cat)
         
-        # Sidebar Filters
         st.sidebar.divider()
         st.sidebar.header("🎯 Strategy Filters")
         sel_cities = st.sidebar.multiselect("Cities", sorted(df_ad['CITY'].unique()), default=df_ad['CITY'].unique())
@@ -93,24 +91,15 @@ if ad_file:
 
         if df_grn is not None:
             st.success("✅ GRN Data Integrated")
-            total_stock = df_grn['ReceivedQty'].sum()
-            st.info(f"Inventory Audit: **{int(total_stock)}** units received. Stock-to-Sales: **{(total_qty/total_stock*100 if total_stock > 0 else 0):.1f}%**")
-        else:
-            st.info("💡 Upload a GRN report for stock auditing.")
-
-        # --- REORDERED TABS ---
+        
+        # --- TABS ---
         t1, t2, t3, t4, t5 = st.tabs([
-            "📍 Regional Stock & GMV", 
-            "🛑 Spend Wastage", 
-            "✅ Winning Keywords", 
-            "📅 Weekly Trends (Best Days)", 
-            "👻 Zero Reach"
+            "📍 Regional Stock & GMV", "🛑 Spend Wastage", "✅ Winning Keywords", "📅 Weekly Trends (Best Days)", "👻 Zero Reach"
         ])
 
         with t1:
             st.subheader("Regional Performance Audit")
             sales_city = filtered_ad.groupby('CITY').agg({'TOTAL_GMV': 'sum', 'TOTAL_CONVERSIONS': 'sum'}).reset_index().rename(columns={'TOTAL_CONVERSIONS': 'Qty Sold'})
-            
             if df_grn is not None:
                 stock_city = df_grn.groupby('Mapped_City').agg({'ReceivedQty': 'sum'}).reset_index().rename(columns={'Mapped_City': 'CITY'})
                 comparison = pd.merge(sales_city, stock_city, on='CITY', how='outer').fillna(0)
@@ -134,38 +123,39 @@ if ad_file:
             weekly = filtered_ad.groupby(['Day_Num', 'Day_Name']).agg({'TOTAL_GMV': 'sum', 'TOTAL_BUDGET_BURNT': 'sum'}).reset_index().sort_values('Day_Num')
             day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             
-            # --- COMBINED CHART (Dual Axis) ---
-            fig = go.Figure()
-            # Bar for GMV
-            fig.add_trace(go.Bar(
-                x=weekly['Day_Name'], y=weekly['TOTAL_GMV'],
-                name='Total GMV', marker_color='#B7E4C7',
-                yaxis='y1', text=weekly['TOTAL_GMV'].apply(lambda x: f"₹{x/1000:.1f}k"), textposition='auto'
-            ))
-            # Line for Spend Trend
-            fig.add_trace(go.Scatter(
-                x=weekly['Day_Name'], y=weekly['TOTAL_BUDGET_BURNT'],
-                name='Budget Spent', line=dict(color='#219EBC', width=4, shape='spline'),
-                yaxis='y2', mode='lines+markers'
-            ))
+            if not weekly.empty:
+                # --- FIXED COMBINED CHART ---
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    x=weekly['Day_Name'], y=weekly['TOTAL_GMV'],
+                    name='Total GMV', marker_color='#B7E4C7',
+                    text=weekly['TOTAL_GMV'].apply(lambda x: f"₹{x/1000:.1f}k"), textposition='auto'
+                ))
+                fig.add_trace(go.Scatter(
+                    x=weekly['Day_Name'], y=weekly['TOTAL_BUDGET_BURNT'],
+                    name='Budget Spent', line=dict(color='#219EBC', width=4, shape='spline'),
+                    yaxis='y2', mode='lines+markers'
+                ))
 
-            fig.update_layout(
-                title="Efficiency Analysis: Revenue (Bars) vs Investment (Trend Line)",
-                xaxis={'categoryorder':'array', 'categoryarray':day_order},
-                yaxis=dict(title="GMV (Revenue ₹)", titlefont=dict(color="#2D6A4F"), tickfont=dict(color="#2D6A4F")),
-                yaxis2=dict(title="Spend (Investment ₹)", titlefont=dict(color="#219EBC"), tickfont=dict(color="#219EBC"),
-                            overlaying='y', side='right'),
-                legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.5)'),
-                template="plotly_white", hovermode="x unified"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+                # Using explicit dictionary updates to avoid ValueError
+                fig.update_layout(
+                    title_text="Efficiency Analysis: Revenue (Bars) vs Investment (Trend Line)",
+                    xaxis=dict(categoryorder='array', categoryarray=day_order),
+                    yaxis=dict(title="GMV (Revenue ₹)", side="left", showgrid=True),
+                    yaxis2=dict(title="Spend (Investment ₹)", side="right", overlaying="y", showgrid=False),
+                    template="plotly_white",
+                    hovermode="x unified",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No data available for the selected filters.")
 
         with t5:
             st.subheader("👻 Zero Reach Audit")
             zero = filtered_ad[filtered_ad['TOTAL_IMPRESSIONS'] == 0].groupby(['CAMPAIGN_NAME', 'KEYWORD']).size().reset_index(name='Count')
             st.dataframe(zero, use_container_width=True)
-
     else:
-        st.error("Invalid Ad Report format.")
+        st.error("Error: Could not parse Advertising Report. Please check the file header.")
 else:
-    st.info("👋 Please upload your Ad Report in the sidebar to begin.")
+    st.info("👋 Welcome! Please upload your reports in the sidebar to begin.")
