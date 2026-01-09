@@ -1,4 +1,6 @@
-pandas
 streamlit
+pandas
 plotly
+xlsxwriter
 openpyxl
+thefuzz
