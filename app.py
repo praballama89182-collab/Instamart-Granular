@@ -28,15 +28,18 @@ def main():
                         df = pd.read_excel(file, sheet_name=sheet)
                         all_dfs.append(df)
                 else:
-                    # IMPROVED: Robust Header Detection
+                    # IMPROVED: Smart Header Detection
+                    # We look for the row that has the most 'Metric' keywords to avoid metadata rows
                     content = file.read().decode('utf-8')
                     file.seek(0)
-                    header_row = 0
                     lines = content.split('\n')
+                    
+                    header_row = 0
                     for i, line in enumerate(lines):
-                        # Looking for any of the standard header keywords (case insensitive)
                         check_line = line.upper()
-                        if any(k in check_line for k in ["METRICS_DATE", "CAMPAIGN NAME", "DATE_IST", "CAMPAIGN_NAME", "KEYWORD"]):
+                        # Count matches for actual data columns
+                        matches = sum(1 for k in ["METRICS_DATE", "CAMPAIGN_NAME", "TOTAL_GMV", "TOTAL_BUDGET", "PRODUCT_NAME", "KEYWORD"] if k in check_line)
+                        if matches >= 2: # Real headers usually have at least 2-3 of these
                             header_row = i
                             break
                     
@@ -47,13 +50,9 @@ def main():
 
         if all_dfs:
             master_df = pd.concat(all_dfs, ignore_index=True, sort=False)
-            
-            # --- STANDARDIZATION STEP ---
-            # Remove whitespace and make everything consistent for mapping
             master_df.columns = master_df.columns.str.strip()
             
             # --- EXPANDED DYNAMIC MAPPING ---
-            # This maps various platform names to a unified internal standard
             mapping = {
                 'METRICS_DATE': 'date_ist',
                 'Date': 'date_ist',
@@ -71,24 +70,20 @@ def main():
             }
             master_df = master_df.rename(columns=mapping)
 
-            # --- KEYWORD/TARGET MAPPING ---
+            # --- TARGET MAPPING ---
             if 'KEYWORD' in master_df.columns: master_df['Target'] = master_df['KEYWORD']
             elif 'Keyword' in master_df.columns: master_df['Target'] = master_df['Keyword']
             elif 'PRODUCT_NAME' in master_df.columns: master_df['Target'] = master_df['PRODUCT_NAME']
             elif 'Category Name' in master_df.columns: master_df['Target'] = master_df['Category Name']
             else: master_df['Target'] = "General/Unknown"
 
-            # --- SAFETY CHECK FOR KEY COLUMNS ---
-            required_cols = ['Campaign Name', 'Direct Sales', 'Estimated Budget Consumed']
-            missing = [col for col in required_cols if col not in master_df.columns]
-            
-            if missing:
-                st.error(f"🚨 Missing critical columns: {missing}")
-                st.write("Current Columns found:", list(master_df.columns))
-                st.info("Check if the uploaded file has headers or if it's a different report type.")
-                return # Stop execution
+            # --- SAFETY CHECK ---
+            if 'Campaign Name' not in master_df.columns:
+                st.error("🚨 'Campaign Name' column not found.")
+                st.write("Columns found after processing:", list(master_df.columns))
+                return
 
-            # Numeric and Date Clean up
+            # Data Cleaning
             if 'date_ist' in master_df.columns:
                 master_df['date_ist'] = pd.to_datetime(master_df['date_ist'], errors='coerce')
                 master_df = master_df.dropna(subset=['date_ist'])
@@ -103,7 +98,7 @@ def main():
             # --- UI: FUZZY SEARCH ---
             st.sidebar.markdown("---")
             st.sidebar.header("🔍 Search Campaign")
-            all_campaigns = sorted([str(x) for x in master_df['Campaign Name'].unique()])
+            all_campaigns = sorted([str(x) for x in master_df['Campaign Name'].dropna().unique()])
             search_query = st.sidebar.text_input("Find campaign...", "")
             
             if search_query:
@@ -116,8 +111,8 @@ def main():
             selected_campaign = st.sidebar.selectbox("Select Campaign", campaign_options)
             plot_df = master_df if selected_campaign == "All Campaigns" else master_df[master_df['Campaign Name'] == selected_campaign]
 
-            # --- TABS AND LOGIC ---
             if not plot_df.empty:
+                # Aggregation
                 summary_df = plot_df.groupby(['Target', 'Campaign Name'], as_index=False).agg({
                     'Direct Sales': 'sum',
                     'Estimated Budget Consumed': 'sum',
@@ -133,8 +128,8 @@ def main():
                     if 'Day of Week' in plot_df.columns:
                         weekly_data = plot_df.groupby('Day of Week', observed=False).agg({'Estimated Budget Consumed': 'sum', 'Direct Sales': 'sum'}).reset_index()
                         fig = go.Figure()
-                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Estimated Budget Consumed'], name='Budget Spent (₹)'))
-                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Direct Sales'], name='Direct Sales (₹)'))
+                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Estimated Budget Consumed'], name='Spend'))
+                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Direct Sales'], name='Sales'))
                         st.plotly_chart(fig, use_container_width=True)
 
                 with tab_perf:
@@ -147,7 +142,6 @@ def main():
 
                 with tab_eff:
                     pause_logic = summary_df[(summary_df['Direct Sales'] == 0) & (summary_df['Estimated Budget Consumed'] > min_spend_waste)]
-                    st.warning(f"Found {len(pause_logic)} items with waste.")
                     st.dataframe(pause_logic.sort_values('Estimated Budget Consumed', ascending=False), use_container_width=True)
 
                 with tab_bids:
@@ -158,7 +152,7 @@ def main():
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     summary_df.to_excel(writer, index=False, sheet_name='Strategy')
-                st.download_button("📥 Download Final Strategy", data=buffer.getvalue(), file_name="ad_strategy.xlsx")
+                st.download_button("📥 Download Strategy", data=buffer.getvalue(), file_name="ad_strategy.xlsx")
 
 if __name__ == "__main__":
     main()
