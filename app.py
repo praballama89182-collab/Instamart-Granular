@@ -5,10 +5,10 @@ import plotly.graph_objects as go
 from thefuzz import process
 
 # 1. PAGE SETUP
-st.set_page_config(page_title="Quick-Commerce Ads Intelligence", layout="wide")
+st.set_page_config(page_title="Swiggy Granular Summary by Prabal", layout="wide")
 
 def main():
-    st.title("🚀 Swiggy & Blinkit Strategic Decision Engine")
+    st.title("🚀 Swiggy Granular Summary by Prabal")
     st.markdown("Analyze Performance, Weekly Trends, and Bidding Strategy across Quick-Commerce platforms.")
 
     # 2. SIDEBAR - ALL FILTERS
@@ -28,8 +28,7 @@ def main():
                         df = pd.read_excel(file, sheet_name=sheet)
                         all_dfs.append(df)
                 else:
-                    # IMPROVED: Smart Header Detection
-                    # We look for the row that has the most 'Metric' keywords to avoid metadata rows
+                    # Smart Header Detection (Robust for Instamart Granular)
                     content = file.read().decode('utf-8')
                     file.seek(0)
                     lines = content.split('\n')
@@ -37,9 +36,9 @@ def main():
                     header_row = 0
                     for i, line in enumerate(lines):
                         check_line = line.upper()
-                        # Count matches for actual data columns
+                        # Real headers usually have at least 2 of these keywords
                         matches = sum(1 for k in ["METRICS_DATE", "CAMPAIGN_NAME", "TOTAL_GMV", "TOTAL_BUDGET", "PRODUCT_NAME", "KEYWORD"] if k in check_line)
-                        if matches >= 2: # Real headers usually have at least 2-3 of these
+                        if matches >= 2:
                             header_row = i
                             break
                     
@@ -80,7 +79,7 @@ def main():
             # --- SAFETY CHECK ---
             if 'Campaign Name' not in master_df.columns:
                 st.error("🚨 'Campaign Name' column not found.")
-                st.write("Columns found after processing:", list(master_df.columns))
+                st.write("Columns found:", list(master_df.columns))
                 return
 
             # Data Cleaning
@@ -125,12 +124,49 @@ def main():
                 tab_trend, tab_perf, tab_eff, tab_bids = st.tabs(["📅 Weekly Trends", "🏆 Performance Summary", "🛑 Waste Audit", "⚖️ Bidding Strategy"])
 
                 with tab_trend:
+                    st.subheader(f"Strategy Insights: {selected_campaign}")
                     if 'Day of Week' in plot_df.columns:
-                        weekly_data = plot_df.groupby('Day of Week', observed=False).agg({'Estimated Budget Consumed': 'sum', 'Direct Sales': 'sum'}).reset_index()
+                        # Group by Day
+                        weekly_data = plot_df.groupby('Day of Week', observed=False).agg({
+                            'Estimated Budget Consumed': 'sum', 
+                            'Direct Sales': 'sum'
+                        }).reset_index()
+                        weekly_data['ROAS'] = weekly_data['Direct Sales'] / weekly_data['Estimated Budget Consumed'].replace(0, 1)
+
+                        # --- SUMMARY STATS ---
+                        best_sales_row = weekly_data.loc[weekly_data['Direct Sales'].idxmax()]
+                        best_roas_row = weekly_data.loc[weekly_data['ROAS'].idxmax()]
+                        
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Highest Sales Day", f"{best_sales_row['Day of Week']}", f"₹{best_sales_row['Direct Sales']:,.0f}")
+                        col2.metric("Best ROAS Day", f"{best_roas_row['Day of Week']}", f"{best_roas_row['ROAS']:.2f}x")
+                        col3.metric("Avg. Weekly ROAS", f"{(weekly_data['Direct Sales'].sum() / weekly_data['Estimated Budget Consumed'].sum()):.2f}x")
+
+                        # --- CHART WITH TRENDLINE ---
                         fig = go.Figure()
-                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Estimated Budget Consumed'], name='Spend'))
-                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Direct Sales'], name='Sales'))
+                        # Bars for Spend and Sales
+                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Estimated Budget Consumed'], 
+                                             name='Spend (₹)', marker_color='#4A90E2', opacity=0.7))
+                        fig.add_trace(go.Bar(x=weekly_data['Day of Week'], y=weekly_data['Direct Sales'], 
+                                             name='Sales (₹)', marker_color='#50E3C2', opacity=0.7))
+                        
+                        # ROAS Trendline (Line + Markers)
+                        fig.add_trace(go.Scatter(x=weekly_data['Day of Week'], y=weekly_data['ROAS'], 
+                                                 name='ROAS Trendline', yaxis='y2', 
+                                                 line=dict(color='#D42D2D', width=4, dash='solid'),
+                                                 marker=dict(size=10, symbol='diamond')))
+
+                        fig.update_layout(
+                            title='Daily Spend vs Sales with ROAS Trendline',
+                            xaxis_title='Day of the Week',
+                            yaxis=dict(title='Currency (₹)', side='left'),
+                            yaxis2=dict(title='ROAS Efficiency', overlaying='y', side='right', showgrid=False, rangemode="tozero"),
+                            barmode='group',
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                        )
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        st.info(f"**Insight:** The highest efficiency (ROAS) is seen on **{best_roas_row['Day of Week']}**, while the volume is peaking on **{best_sales_row['Day of Week']}**.")
 
                 with tab_perf:
                     summary_sorted = summary_df.sort_values(by='Direct Sales', ascending=False)
@@ -142,13 +178,16 @@ def main():
 
                 with tab_eff:
                     pause_logic = summary_df[(summary_df['Direct Sales'] == 0) & (summary_df['Estimated Budget Consumed'] > min_spend_waste)]
+                    st.warning(f"Found {len(pause_logic)} unique items wasting budget (> ₹{min_spend_waste} spend with 0 sales).")
                     st.dataframe(pause_logic.sort_values('Estimated Budget Consumed', ascending=False), use_container_width=True)
 
                 with tab_bids:
                     avg_cpm = summary_df['CPM'].mean()
                     cpm_opt = summary_df[(summary_df['Aggregated ROAS'] >= target_roas) & (summary_df['CPM'] > avg_cpm)]
+                    st.info(f"Suggestions: Reduce bids for items with high ROAS but CPM > average ({avg_cpm:.2f}).")
                     st.dataframe(cpm_opt, use_container_width=True)
 
+                # Export
                 buffer = io.BytesIO()
                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                     summary_df.to_excel(writer, index=False, sheet_name='Strategy')
