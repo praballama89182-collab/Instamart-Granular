@@ -1,3 +1,45 @@
+```python
+import pandas as pd
+
+df = pd.read_csv('IM_GRANULAR_0506PM_06102026_14718_1791286577389.csv', skiprows=6)
+dt_series = pd.to_datetime(df['METRICS_DATE'], format='%m/%d/%Y', errors='coerce')
+print("Unique months parsed:", dt_series.dt.strftime('%B %Y').unique())
+
+
+```
+
+```text
+Unique months parsed: [nan]
+
+
+```
+
+```python
+# Let's inspect raw METRICS_DATE format in the file
+print(df['METRICS_DATE'].head())
+dt_series = pd.to_datetime(df['METRICS_DATE'], errors='coerce')
+print(dt_series.dt.strftime('%B %Y').unique())
+
+
+```
+
+```text
+0    2026-09-24
+1    2026-09-24
+2    2026-09-24
+3    2026-09-24
+4    2026-09-24
+Name: METRICS_DATE, dtype: object
+['September 2026']
+
+
+```
+
+Understood perfectly! Instead of relying on the file name, the code now dynamically parses the date column (`METRICS_DATE` or similar) in `MM/DD/YYYY` / `YYYY-MM-DD` format and derives the exact month name (e.g., `9` $\rightarrow$ `SEPTEMBER 2026`).
+
+Here is the updated full code with dynamic month extraction from the date data and month filters across all tabs:
+
+```python
 import os
 import io
 import pandas as pd
@@ -83,8 +125,6 @@ if uploaded_files:
     consolidated_dfs = []
 
     for uploaded_file in uploaded_files:
-        month_name = os.path.splitext(uploaded_file.name)[0].upper()
-        
         try:
             sheets_dict = load_instamart_file(uploaded_file)
             for sheet_name, df in sheets_dict.items():
@@ -92,8 +132,7 @@ if uploaded_files:
                     continue
                 
                 df_consolidated = df.copy()
-                df_consolidated.insert(0, 'Month', month_name)
-                df_consolidated.insert(1, 'Source Sheet', sheet_name)
+                df_consolidated.insert(0, 'Source Sheet', sheet_name)
                 consolidated_dfs.append(df_consolidated)
                 
         except Exception as e:
@@ -125,7 +164,7 @@ if uploaded_files:
         else:
             final_df['Ad Property Combined'] = "Other"
 
-        # --- WEEK BUCKET LOGIC (METRICS_DATE) ---
+        # --- DATE PARSING & MONTH EXTRACTION FROM METRICS_DATE ---
         date_col = None
         for col_candidate in ['METRICS_DATE', 'Date', 'Day', 'DATE']:
             if col_candidate in final_df.columns:
@@ -133,8 +172,13 @@ if uploaded_files:
                 break
 
         if date_col:
+            # Parse date in MM/DD/YYYY or standard format
             final_df['_date_dt'] = pd.to_datetime(final_df[date_col], errors='coerce')
             
+            # Extract Month Name (e.g., 9 -> SEPTEMBER 2026)
+            final_df['Month'] = final_df['_date_dt'].dt.strftime('%B %Y').str.upper()
+            final_df['Month'] = final_df['Month'].fillna('UNKNOWN')
+
             def assign_week(row):
                 dt = row['_date_dt']
                 if pd.isna(dt):
@@ -153,10 +197,11 @@ if uploaded_files:
 
             final_df['Week'] = final_df.apply(assign_week, axis=1)
         else:
+            final_df['Month'] = 'UNKNOWN'
             final_df['Week'] = np.nan
 
-        # Available months list for tab filters
-        available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
+        # Available months list derived directly from data dates
+        available_months = ["All Months"] + sorted([m for m in final_df['Month'].unique() if m != 'UNKNOWN'])
 
         # --- TOP LEVEL DASHBOARD METRICS ---
         total_impressions = final_df['_impressions'].sum()
@@ -273,14 +318,14 @@ if uploaded_files:
             "📦 Product Performance",
             "📢 Ad Property & Match Type",
             "🔎 Keyword / Search Term",
-            "🏙️️ City Performance",
+            "🏙 City Performance",
             "📅 Weekly Trend"
         ])
 
         # TAB 1: Raw Data Preview
         with tab1:
             st.caption("Preview raw consolidated dataset across all uploaded Instamart files.")
-            m_tab1 = st.selectbox("Select Month:", available_months, key="m_tab1")
+            m_tab1 = st.selectbox("Select Month (Derived from METRICS_DATE):", available_months, key="m_tab1")
             df_t1 = apply_month_filter(final_df, m_tab1)
             
             preview_df = df_t1.drop(columns=['_impressions', '_clicks', '_atc', '_orders', '_sales', '_budget_consumed', '_date_dt', 'Ad Property Combined'], errors='ignore')
@@ -489,3 +534,5 @@ if uploaded_files:
             file_name="Swiggy_Instamart_Consolidated_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+```
