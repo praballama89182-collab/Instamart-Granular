@@ -1,45 +1,3 @@
-```python
-import pandas as pd
-
-df = pd.read_csv('IM_GRANULAR_0506PM_06102026_14718_1791286577389.csv', skiprows=6)
-dt_series = pd.to_datetime(df['METRICS_DATE'], format='%m/%d/%Y', errors='coerce')
-print("Unique months parsed:", dt_series.dt.strftime('%B %Y').unique())
-
-
-```
-
-```text
-Unique months parsed: [nan]
-
-
-```
-
-```python
-# Let's inspect raw METRICS_DATE format in the file
-print(df['METRICS_DATE'].head())
-dt_series = pd.to_datetime(df['METRICS_DATE'], errors='coerce')
-print(dt_series.dt.strftime('%B %Y').unique())
-
-
-```
-
-```text
-0    2026-09-24
-1    2026-09-24
-2    2026-09-24
-3    2026-09-24
-4    2026-09-24
-Name: METRICS_DATE, dtype: object
-['September 2026']
-
-
-```
-
-Understood perfectly! Instead of relying on the file name, the code now dynamically parses the date column (`METRICS_DATE` or similar) in `MM/DD/YYYY` / `YYYY-MM-DD` format and derives the exact month name (e.g., `9` $\rightarrow$ `SEPTEMBER 2026`).
-
-Here is the updated full code with dynamic month extraction from the date data and month filters across all tabs:
-
-```python
 import os
 import io
 import pandas as pd
@@ -534,5 +492,3 @@ if uploaded_files:
             file_name="Swiggy_Instamart_Consolidated_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-```
