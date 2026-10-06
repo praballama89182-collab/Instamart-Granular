@@ -3,6 +3,7 @@ import io
 import pandas as pd
 import numpy as np
 import streamlit as st
+import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -154,22 +155,16 @@ if uploaded_files:
         else:
             final_df['Week'] = np.nan
 
-        # --- GLOBAL MONTH FILTER ---
-        st.markdown("### 🔍 Global Dashboard Filters")
+        # Available months list for tab filters
         available_months = ["All Months"] + sorted(list(final_df['Month'].dropna().unique()))
-        selected_month = st.selectbox("Select Month Across Dashboard", available_months)
-
-        filtered_df = final_df.copy()
-        if selected_month != "All Months":
-            filtered_df = filtered_df[filtered_df['Month'] == selected_month]
 
         # --- TOP LEVEL DASHBOARD METRICS ---
-        total_impressions = filtered_df['_impressions'].sum()
-        total_clicks = filtered_df['_clicks'].sum()
-        total_sales = filtered_df['_sales'].sum()
-        total_orders = filtered_df['_orders'].sum()
-        total_atc = filtered_df['_atc'].sum()
-        total_budget = filtered_df['_budget_consumed'].sum()
+        total_impressions = final_df['_impressions'].sum()
+        total_clicks = final_df['_clicks'].sum()
+        total_sales = final_df['_sales'].sum()
+        total_orders = final_df['_orders'].sum()
+        total_atc = final_df['_atc'].sum()
+        total_budget = final_df['_budget_consumed'].sum()
         
         overall_roas = round((total_sales / total_budget), 2) if total_budget > 0 else 0.0
 
@@ -264,6 +259,12 @@ if uploaded_files:
             active_formats = {k: v for k, v in format_dict.items() if k in df.columns}
             return styler.format(active_formats)
 
+        # Helper to apply month filter inside tabs
+        def apply_month_filter(df, month_val):
+            if month_val != "All Months":
+                return df[df['Month'] == month_val]
+            return df
+
         # --- NAVIGATION TABS ---
         st.markdown("### 📑 Instamart Performance Breakdown")
         tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -272,25 +273,34 @@ if uploaded_files:
             "📦 Product Performance",
             "📢 Ad Property & Match Type",
             "🔎 Keyword / Search Term",
-            "🏙️ City Performance",
+            "🏙️️ City Performance",
             "📅 Weekly Trend"
         ])
 
         # TAB 1: Raw Data Preview
         with tab1:
             st.caption("Preview raw consolidated dataset across all uploaded Instamart files.")
-            preview_df = final_df.drop(columns=['_impressions', '_clicks', '_atc', '_orders', '_sales', '_budget_consumed', '_date_dt', 'Ad Property Combined'], errors='ignore')
+            m_tab1 = st.selectbox("Select Month:", available_months, key="m_tab1")
+            df_t1 = apply_month_filter(final_df, m_tab1)
+            
+            preview_df = df_t1.drop(columns=['_impressions', '_clicks', '_atc', '_orders', '_sales', '_budget_consumed', '_date_dt', 'Ad Property Combined'], errors='ignore')
             st.write(f"Total Rows Consolidated: **{len(preview_df):,}**")
             st.dataframe(preview_df.head(100), use_container_width=True)
 
         # TAB 2: Campaign Performance
         with tab2:
             st.caption("Aggregated performance per Swiggy Instamart campaign.")
-            if 'CAMPAIGN_NAME' in filtered_df.columns:
-                c_opts = ["All"] + sorted([str(x) for x in filtered_df['CAMPAIGN_NAME'].dropna().unique()])
-                sel_c = st.selectbox("Select Campaign:", c_opts, key="c_flt")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                m_tab2 = st.selectbox("Select Month:", available_months, key="m_tab2")
+            df_t2 = apply_month_filter(final_df, m_tab2)
+
+            if 'CAMPAIGN_NAME' in df_t2.columns:
+                c_opts = ["All"] + sorted([str(x) for x in df_t2['CAMPAIGN_NAME'].dropna().unique()])
+                with col_b:
+                    sel_c = st.selectbox("Select Campaign:", c_opts, key="c_flt")
                 
-                campaign_df = compute_grouped_table(filtered_df, 'CAMPAIGN_NAME', sel_c)
+                campaign_df = compute_grouped_table(df_t2, 'CAMPAIGN_NAME', sel_c)
                 if not campaign_df.empty:
                     st.dataframe(style_dataframe(campaign_df), use_container_width=True, hide_index=True)
                     st.download_button("📥 Download Campaign Performance (.xlsx)", convert_df_to_excel(campaign_df, "Campaign_Performance"), "Instamart_Campaign_Report.xlsx", key="dl_c")
@@ -300,11 +310,17 @@ if uploaded_files:
         # TAB 3: Product Performance
         with tab3:
             st.caption("Aggregated performance by SKU / Product Name.")
-            if 'PRODUCT_NAME' in filtered_df.columns:
-                p_opts = ["All"] + sorted([str(x) for x in filtered_df['PRODUCT_NAME'].dropna().unique()])
-                sel_p = st.selectbox("Select Product:", p_opts, key="p_flt")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                m_tab3 = st.selectbox("Select Month:", available_months, key="m_tab3")
+            df_t3 = apply_month_filter(final_df, m_tab3)
+
+            if 'PRODUCT_NAME' in df_t3.columns:
+                p_opts = ["All"] + sorted([str(x) for x in df_t3['PRODUCT_NAME'].dropna().unique()])
+                with col_b:
+                    sel_p = st.selectbox("Select Product:", p_opts, key="p_flt")
                 
-                prod_df = compute_grouped_table(filtered_df, 'PRODUCT_NAME', sel_p)
+                prod_df = compute_grouped_table(df_t3, 'PRODUCT_NAME', sel_p)
                 if not prod_df.empty:
                     st.dataframe(style_dataframe(prod_df), use_container_width=True, hide_index=True)
                     st.download_button("📥 Download Product Performance (.xlsx)", convert_df_to_excel(prod_df, "Product_Performance"), "Instamart_Product_Report.xlsx", key="dl_p")
@@ -314,11 +330,17 @@ if uploaded_files:
         # TAB 4: Ad Property Performance
         with tab4:
             st.caption("Performance by Ad Property and Match Type.")
-            if 'Ad Property Combined' in filtered_df.columns:
-                ad_opts = ["All"] + sorted([str(x) for x in filtered_df['Ad Property Combined'].dropna().unique()])
-                sel_ad = st.selectbox("Select Ad Property:", ad_opts, key="ad_flt")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                m_tab4 = st.selectbox("Select Month:", available_months, key="m_tab4")
+            df_t4 = apply_month_filter(final_df, m_tab4)
+
+            if 'Ad Property Combined' in df_t4.columns:
+                ad_opts = ["All"] + sorted([str(x) for x in df_t4['Ad Property Combined'].dropna().unique()])
+                with col_b:
+                    sel_ad = st.selectbox("Select Ad Property:", ad_opts, key="ad_flt")
                 
-                ad_df = compute_grouped_table(filtered_df, 'Ad Property Combined', sel_ad)
+                ad_df = compute_grouped_table(df_t4, 'Ad Property Combined', sel_ad)
                 if not ad_df.empty:
                     st.dataframe(style_dataframe(ad_df), use_container_width=True, hide_index=True)
                     st.download_button("📥 Download Ad Property Performance (.xlsx)", convert_df_to_excel(ad_df, "Ad_Property_Performance"), "Instamart_Ad_Property_Report.xlsx", key="dl_ad")
@@ -326,24 +348,64 @@ if uploaded_files:
         # TAB 5: Search Term / Keyword Performance
         with tab5:
             st.caption("Performance breakdown by targeted keywords.")
-            if 'KEYWORD' in filtered_df.columns:
-                kw_opts = ["All"] + sorted([str(x) for x in filtered_df['KEYWORD'].dropna().unique()])
-                sel_kw = st.selectbox("Select Keyword:", kw_opts, key="kw_flt")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                m_tab5 = st.selectbox("Select Month:", available_months, key="m_tab5")
+            df_t5 = apply_month_filter(final_df, m_tab5)
+
+            if 'KEYWORD' in df_t5.columns:
+                kw_opts = ["All"] + sorted([str(x) for x in df_t5['KEYWORD'].dropna().unique()])
+                with col_b:
+                    sel_kw = st.selectbox("Select Keyword:", kw_opts, key="kw_flt")
                 
-                kw_df = compute_grouped_table(filtered_df, 'KEYWORD', sel_kw)
+                kw_df = compute_grouped_table(df_t5, 'KEYWORD', sel_kw)
                 if not kw_df.empty:
                     st.dataframe(style_dataframe(kw_df), use_container_width=True, hide_index=True, height=500)
                     st.download_button("📥 Download Keyword Performance (.xlsx)", convert_df_to_excel(kw_df, "Keyword_Performance"), "Instamart_Keyword_Report.xlsx", key="dl_kw")
 
         # TAB 6: City Performance
         with tab6:
-            st.caption("City-wise advertising performance breakdown.")
-            if 'CITY' in filtered_df.columns:
-                city_opts = ["All"] + sorted([str(x) for x in filtered_df['CITY'].dropna().unique()])
-                sel_city = st.selectbox("Select City:", city_opts, key="city_flt")
+            st.caption("City-wise advertising performance breakdown & pie chart share.")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                m_tab6 = st.selectbox("Select Month:", available_months, key="m_tab6")
+            df_t6 = apply_month_filter(final_df, m_tab6)
+
+            if 'CITY' in df_t6.columns:
+                city_opts = ["All"] + sorted([str(x) for x in df_t6['CITY'].dropna().unique()])
+                with col_b:
+                    sel_city = st.selectbox("Select City:", city_opts, key="city_flt")
                 
-                city_df = compute_grouped_table(filtered_df, 'CITY', sel_city)
+                city_df = compute_grouped_table(df_t6, 'CITY', sel_city)
                 if not city_df.empty:
+                    # Pie Chart for City Spend & Sales Share
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        fig_spend_pie = px.pie(
+                            city_df, 
+                            values='SPENDS', 
+                            names='CITY', 
+                            title="🏙️ City-wise Spend Share",
+                            color_discrete_sequence=px.colors.sequential.Blues_r,
+                            hole=0.4
+                        )
+                        fig_spend_pie.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_spend_pie.update_layout(template='plotly_white', height=380)
+                        st.plotly_chart(fig_spend_pie, use_container_width=True)
+
+                    with col_p2:
+                        fig_sales_pie = px.pie(
+                            city_df, 
+                            values='SALES', 
+                            names='CITY', 
+                            title="🏙️ City-wise Sales (GMV) Share",
+                            color_discrete_sequence=px.colors.sequential.Blues_r,
+                            hole=0.4
+                        )
+                        fig_sales_pie.update_traces(textposition='inside', textinfo='percent+label')
+                        fig_sales_pie.update_layout(template='plotly_white', height=380)
+                        st.plotly_chart(fig_sales_pie, use_container_width=True)
+
                     st.dataframe(style_dataframe(city_df), use_container_width=True, hide_index=True)
                     st.download_button("📥 Download City Performance (.xlsx)", convert_df_to_excel(city_df, "City_Performance"), "Instamart_City_Report.xlsx", key="dl_city")
             else:
@@ -352,20 +414,67 @@ if uploaded_files:
         # TAB 7: Weekly Performance Trend
         with tab7:
             st.caption("Weekly performance trend (Week 1 through Week 5).")
-            if 'Week' in filtered_df.columns and filtered_df['Week'].notna().any():
-                weekly_df = compute_grouped_table(filtered_df, 'Week', "All")
+            m_tab7 = st.selectbox("Select Month:", available_months, key="m_tab7")
+            df_t7 = apply_month_filter(final_df, m_tab7)
+
+            if 'Week' in df_t7.columns and df_t7['Week'].notna().any():
+                weekly_df = compute_grouped_table(df_t7, 'Week', "All")
                 
                 week_order = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5']
                 weekly_df['Week_Cat'] = pd.Categorical(weekly_df['WEEK'], categories=week_order, ordered=True)
                 weekly_df = weekly_df.sort_values('Week_Cat').drop(columns=['Week_Cat'])
 
-                # Interactive Plotly Chart
+                # Professional Plotly Chart (Shades of Blue Palette)
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
-                fig.add_trace(go.Bar(x=weekly_df['WEEK'], y=weekly_df['SPENDS'], name='Spends (₹)', marker_color='#FC8019', text=[f"₹{v:,.0f}" for v in weekly_df['SPENDS']], textposition='auto'), secondary_y=False)
-                fig.add_trace(go.Bar(x=weekly_df['WEEK'], y=weekly_df['SALES'], name='Sales (₹)', marker_color='#2A9D8F', text=[f"₹{v:,.0f}" for v in weekly_df['SALES']], textposition='auto'), secondary_y=False)
-                fig.add_trace(go.Scatter(x=weekly_df['WEEK'], y=weekly_df['ROAS'], name='ROAS', mode='lines+markers+text', line=dict(color='#E76F51', width=3), marker=dict(size=8), text=[f"{v:.2f}x" for v in weekly_df['ROAS']], textposition='top center'), secondary_y=True)
+                
+                # Dark Navy Blue for Spends
+                fig.add_trace(
+                    go.Bar(
+                        x=weekly_df['WEEK'], 
+                        y=weekly_df['SPENDS'], 
+                        name='Spends (₹)', 
+                        marker_color='#1B365D', 
+                        text=[f"₹{v:,.0f}" for v in weekly_df['SPENDS']], 
+                        textposition='auto'
+                    ), 
+                    secondary_y=False
+                )
+                
+                # Slate Blue for Sales
+                fig.add_trace(
+                    go.Bar(
+                        x=weekly_df['WEEK'], 
+                        y=weekly_df['SALES'], 
+                        name='Sales (₹)', 
+                        marker_color='#4A90E2', 
+                        text=[f"₹{v:,.0f}" for v in weekly_df['SALES']], 
+                        textposition='auto'
+                    ), 
+                    secondary_y=False
+                )
+                
+                # Vivid Cyan Blue Line for ROAS
+                fig.add_trace(
+                    go.Scatter(
+                        x=weekly_df['WEEK'], 
+                        y=weekly_df['ROAS'], 
+                        name='ROAS', 
+                        mode='lines+markers+text', 
+                        line=dict(color='#00A8E8', width=3), 
+                        marker=dict(size=8, color='#00A8E8'), 
+                        text=[f"{v:.2f}x" for v in weekly_df['ROAS']], 
+                        textposition='top center'
+                    ), 
+                    secondary_y=True
+                )
 
-                fig.update_layout(title="📊 Weekly Spends vs Sales & ROAS Trend", barmode='group', template='plotly_white', height=500, legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
+                fig.update_layout(
+                    title="📊 Weekly Spends vs Sales & ROAS Trend", 
+                    barmode='group', 
+                    template='plotly_white', 
+                    height=500, 
+                    legend=dict(orientation="h", y=1.1, x=1, xanchor="right")
+                )
                 st.plotly_chart(fig, use_container_width=True)
                 st.dataframe(style_dataframe(weekly_df), use_container_width=True, hide_index=True)
 
