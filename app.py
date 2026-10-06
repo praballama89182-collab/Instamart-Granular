@@ -1,8 +1,3 @@
-That `SyntaxError` occurred because a bit of terminal output snippet was inadvertently pasted into your `app.py` script file around line 27.
-
-Here is the clean, fixed production code without any stray text. Replace your entire `app.py` file with this:
-
-```python
 import os
 import io
 import pandas as pd
@@ -497,5 +492,3 @@ if uploaded_files:
             file_name="Swiggy_Instamart_Consolidated_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-```
